@@ -7,12 +7,68 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ГДЗС Калькулятор'),
+        title: const Text('🚒 ГДЗС Калькулятор'),
+        centerTitle: true,
       ),
-      body: const Center(
-        child: Text(
-          'Ласкаво просимо!',
-          style: TextStyle(fontSize: 24),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Spacer(),
+
+              SizedBox(
+                height: 70,
+                child: FilledButton.icon(
+                  onPressed: () {},
+                  icon: const Icon(Icons.groups),
+                  label: const Text(
+                    'СТВОРИТИ ЛАНКУ',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+
+              const Spacer(),
+
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.menu_book),
+                  title: const Text('Довідник'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {},
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.history),
+                  title: const Text('Історія'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {},
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.settings),
+                  title: const Text('Налаштування'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {},
+                ),
+              ),
+
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
