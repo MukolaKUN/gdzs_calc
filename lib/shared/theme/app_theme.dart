@@ -11,14 +11,8 @@ class AppTheme {
 
     scaffoldBackgroundColor: AppColors.background,
 
-    appBarTheme: const AppBarTheme(
-      centerTitle: true,
-      elevation: 0,
-    ),
+    appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
 
-    cardTheme: const CardThemeData(
-      elevation: 1,
-      margin: EdgeInsets.zero,
-    ),
+    cardTheme: const CardThemeData(elevation: 1, margin: EdgeInsets.zero),
   );
 }

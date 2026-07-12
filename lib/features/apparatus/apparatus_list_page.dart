@@ -42,9 +42,7 @@ class _ApparatusListPageState extends State<ApparatusListPage> {
   Future<void> _openEditor([Apparatus? apparatus]) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => AddApparatusPage(apparatus: apparatus),
-      ),
+      MaterialPageRoute(builder: (_) => AddApparatusPage(apparatus: apparatus)),
     );
 
     if (!mounted) return;
@@ -54,17 +52,13 @@ class _ApparatusListPageState extends State<ApparatusListPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Апарати'),
-      ),
+      appBar: AppBar(title: const Text('Апарати')),
       floatingActionButton: FloatingActionButton(
         onPressed: _openEditor,
         child: const Icon(Icons.add),
       ),
       body: _apparatus.isEmpty
-          ? const Center(
-              child: Text('Немає апаратів'),
-            )
+          ? const Center(child: Text('Немає апаратів'))
           : ListView.builder(
               itemCount: _apparatus.length,
               itemBuilder: (context, index) {
@@ -89,14 +83,8 @@ class _ApparatusListPageState extends State<ApparatusListPage> {
                         }
                       },
                       itemBuilder: (context) => const [
-                        PopupMenuItem(
-                          value: 'edit',
-                          child: Text('Редагувати'),
-                        ),
-                        PopupMenuItem(
-                          value: 'delete',
-                          child: Text('Видалити'),
-                        ),
+                        PopupMenuItem(value: 'edit', child: Text('Редагувати')),
+                        PopupMenuItem(value: 'delete', child: Text('Видалити')),
                       ],
                     ),
                   ),

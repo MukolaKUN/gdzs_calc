@@ -26,18 +26,13 @@ class HomePage extends StatelessWidget {
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) => const NewTeamPage(),
-                      ),
+                      MaterialPageRoute(builder: (_) => const NewTeamPage()),
                     );
                   },
                   icon: const Icon(Icons.groups),
                   label: const Text(
                     'СТВОРИТИ ЛАНКУ',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),
@@ -74,9 +69,7 @@ class HomePage extends StatelessWidget {
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) => const SettingsPage(),
-                      ),
+                      MaterialPageRoute(builder: (_) => const SettingsPage()),
                     );
                   },
                 ),

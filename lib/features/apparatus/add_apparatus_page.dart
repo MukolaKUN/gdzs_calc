@@ -111,7 +111,9 @@ class _AddApparatusPageState extends State<AddApparatusPage> {
             ),
             TextFormField(
               controller: _cylinderVolumeController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(
                 labelText: 'Об’єм одного балона, л',
               ),
@@ -140,7 +142,9 @@ class _AddApparatusPageState extends State<AddApparatusPage> {
             TextFormField(
               controller: _reservePressureController,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Резервний тиск, бар'),
+              decoration: const InputDecoration(
+                labelText: 'Резервний тиск, бар',
+              ),
               validator: (value) {
                 final reservePressure = int.tryParse(value?.trim() ?? '');
                 final workingPressure = int.tryParse(
@@ -149,17 +153,15 @@ class _AddApparatusPageState extends State<AddApparatusPage> {
                 if (reservePressure == null || reservePressure < 0) {
                   return 'Резервний тиск не може бути від’ємним';
                 }
-                if (workingPressure != null && reservePressure >= workingPressure) {
+                if (workingPressure != null &&
+                    reservePressure >= workingPressure) {
                   return 'Резервний тиск має бути меншим за робочий';
                 }
                 return null;
               },
             ),
             const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _save,
-              child: const Text('Зберегти'),
-            ),
+            FilledButton(onPressed: _save, child: const Text('Зберегти')),
           ],
         ),
       ),

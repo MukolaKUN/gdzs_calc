@@ -26,7 +26,9 @@ class _AddFirefighterPageState extends State<AddFirefighterPage> {
     _fullNameController = TextEditingController(
       text: widget.firefighter?.fullName ?? '',
     );
-    _watchController = TextEditingController(text: widget.firefighter?.watch ?? '');
+    _watchController = TextEditingController(
+      text: widget.firefighter?.watch ?? '',
+    );
   }
 
   @override
@@ -70,7 +72,9 @@ class _AddFirefighterPageState extends State<AddFirefighterPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _isEditing ? 'Редагувати газодимозахисника' : 'Новий газодимозахисник',
+          _isEditing
+              ? 'Редагувати газодимозахисника'
+              : 'Новий газодимозахисник',
         ),
       ),
       body: Form(
@@ -81,7 +85,9 @@ class _AddFirefighterPageState extends State<AddFirefighterPage> {
             TextFormField(
               controller: _fullNameController,
               textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(labelText: 'ПІБ газодимозахисника'),
+              decoration: const InputDecoration(
+                labelText: 'ПІБ газодимозахисника',
+              ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
                   return 'Вкажіть ПІБ газодимозахисника';

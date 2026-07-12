@@ -3,18 +3,10 @@ class Firefighter {
   final String fullName;
   final String watch;
 
-  const Firefighter({
-    this.id,
-    required this.fullName,
-    required this.watch,
-  });
+  const Firefighter({this.id, required this.fullName, required this.watch});
 
   Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'fullName': fullName,
-      'watch': watch,
-    };
+    return {'id': id, 'fullName': fullName, 'watch': watch};
   }
 
   factory Firefighter.fromMap(Map<String, dynamic> map) {
@@ -25,11 +17,7 @@ class Firefighter {
     );
   }
 
-  Firefighter copyWith({
-    int? id,
-    String? fullName,
-    String? watch,
-  }) {
+  Firefighter copyWith({int? id, String? fullName, String? watch}) {
     return Firefighter(
       id: id ?? this.id,
       fullName: fullName ?? this.fullName,

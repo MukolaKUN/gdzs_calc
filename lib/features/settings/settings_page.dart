@@ -9,13 +9,10 @@ class SettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Налаштування"),
-      ),
+      appBar: AppBar(title: const Text("Налаштування")),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-
           Card(
             child: ListTile(
               leading: Icon(Icons.business),
@@ -26,9 +23,7 @@ class SettingsPage extends StatelessWidget {
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => const UnitsPage(),
-                  ),
+                  MaterialPageRoute(builder: (_) => const UnitsPage()),
                 );
               },
             ),
@@ -45,9 +40,7 @@ class SettingsPage extends StatelessWidget {
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => const ApparatusPage(),
-                  ),
+                  MaterialPageRoute(builder: (_) => const ApparatusPage()),
                 );
               },
             ),
@@ -64,9 +57,7 @@ class SettingsPage extends StatelessWidget {
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => const FirefightersPage(),
-                  ),
+                  MaterialPageRoute(builder: (_) => const FirefightersPage()),
                 );
               },
             ),

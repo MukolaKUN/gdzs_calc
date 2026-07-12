@@ -8,6 +8,8 @@ class PressureInput extends StatelessWidget {
   final int minValue;
   final int maxValue;
   final String? helperText;
+  final String? statusText;
+  final VoidCallback? onEdited;
   final ValueChanged<int>? onChanged;
 
   const PressureInput({
@@ -18,10 +20,14 @@ class PressureInput extends StatelessWidget {
     required this.minValue,
     required this.maxValue,
     this.helperText,
+    this.statusText,
+    this.onEdited,
     this.onChanged,
   });
 
   void _notifyChanged(String text) {
+    onEdited?.call();
+
     final pressure = int.tryParse(text.trim());
     if (pressure != null && pressure >= minValue && pressure <= maxValue) {
       onChanged?.call(pressure);
@@ -38,6 +44,7 @@ class PressureInput extends StatelessWidget {
       selection: TextSelection.collapsed(offset: nextText.length),
     );
 
+    onEdited?.call();
     onChanged?.call(nextValue);
   }
 
@@ -92,6 +99,10 @@ class PressureInput extends StatelessWidget {
                 return null;
               },
             ),
+            if (statusText != null) ...[
+              const SizedBox(height: 8),
+              Text(statusText!),
+            ],
             const SizedBox(height: 10),
             Wrap(
               spacing: 8,

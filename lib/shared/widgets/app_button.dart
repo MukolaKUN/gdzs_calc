@@ -21,10 +21,7 @@ class AppButton extends StatelessWidget {
       child: FilledButton.icon(
         onPressed: onPressed,
         icon: icon != null ? Icon(icon) : const SizedBox.shrink(),
-        label: Text(
-          text,
-          style: const TextStyle(fontSize: 18),
-        ),
+        label: Text(text, style: const TextStyle(fontSize: 18)),
       ),
     );
   }

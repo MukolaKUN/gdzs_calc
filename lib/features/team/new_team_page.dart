@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:gdzs_calc/features/apparatus/apparatus_page.dart';
 import 'package:gdzs_calc/features/firefighters/firefighters_page.dart';
+import 'package:gdzs_calc/features/team/active_team_page.dart';
+import 'package:gdzs_calc/features/team/models/active_team_session.dart';
 import 'package:gdzs_calc/features/team/widgets/pressure_input.dart';
 import 'package:gdzs_calc/features/units/units_page.dart';
 import 'package:gdzs_calc/shared/models/apparatus.dart';
@@ -463,6 +465,59 @@ class _NewTeamPageState extends State<NewTeamPage> {
     }
   }
 
+  void _startActiveTeam() {
+    final unit = _selectedUnit;
+    final apparatus = _selectedApparatus;
+    final inclusionTime = _inclusionTime;
+    final arrivalTime = _arrivalTime;
+    final leaderId = _leaderId;
+    final result = _result;
+    if (unit == null ||
+        apparatus == null ||
+        inclusionTime == null ||
+        arrivalTime == null ||
+        leaderId == null ||
+        result == null ||
+        result.mustExitImmediately) {
+      return;
+    }
+
+    final startedAt = DateTime.now();
+    final session = ActiveTeamSession(
+      unitName: unit.name,
+      apparatusName: apparatus.name,
+      participants: _selectedFirefighters,
+      leaderId: leaderId,
+      startPressuresByFirefighterId: {
+        for (final id in _selectedFirefighterIds)
+          id: int.parse(_startPressureControllers[id]!.text.trim()),
+      },
+      arrivalPressuresByFirefighterId: {
+        for (final id in _selectedFirefighterIds)
+          id: int.parse(_arrivalPressureControllers[id]!.text.trim()),
+      },
+      inclusionTime: inclusionTime,
+      arrivalTime: arrivalTime,
+      plannedExitTime: result.exitTime,
+      exitPressure: result.exitPressure,
+      workingTimeMinutes: result.workingTimeMinutes,
+      workLoad: _workLoad,
+      cylinderVolume: apparatus.cylinderVolume,
+      cylindersCount: apparatus.cylindersCount,
+      events: [
+        ActiveTeamEvent(
+          time: startedAt,
+          title: 'Роботу ланки розпочато',
+          description: 'Ланка ${unit.name} розпочала роботу в ЗІЗОД.',
+        ),
+      ],
+    );
+
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => ActiveTeamPage(session: session)));
+  }
+
   void _goBack() {
     if (_step == 0) return;
 
@@ -858,7 +913,18 @@ class _NewTeamPageState extends State<NewTeamPage> {
               padding: EdgeInsets.all(16),
               child: Text('Ланка повинна негайно розпочати вихід'),
             ),
+          )
+        else ...[
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _startActiveTeam,
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Почати роботу ланки'),
+            ),
           ),
+        ],
       ],
     );
   }

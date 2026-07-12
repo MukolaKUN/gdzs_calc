@@ -35,9 +35,7 @@ class _UnitsPageState extends State<UnitsPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Видалити підрозділ?'),
-        content: Text(
-          'Ви дійсно хочете видалити "${unit.name}"?',
-        ),
+        content: Text('Ви дійсно хочете видалити "${unit.name}"?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -59,41 +57,32 @@ class _UnitsPageState extends State<UnitsPage> {
 
     if (!mounted) return;
 
-    AppSnackBar.success(
-  context,
-  'Підрозділ видалено',
-);
+    AppSnackBar.success(context, 'Підрозділ видалено');
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Підрозділи'),
-      ),
+      appBar: AppBar(title: const Text('Підрозділи')),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
-         await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const AddUnitPage(),
-          ),
-        );
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const AddUnitPage()),
+          );
 
-        if (!mounted) return;
+          if (!mounted) return;
 
-        await _loadUnits();
+          await _loadUnits();
 
-        await _loadUnits();
+          await _loadUnits();
 
           await _loadUnits();
         },
         child: const Icon(Icons.add),
       ),
       body: _units.isEmpty
-          ? const Center(
-              child: Text('Поки що немає жодного підрозділу'),
-            )
+          ? const Center(child: Text('Поки що немає жодного підрозділу'))
           : ListView.builder(
               itemCount: _units.length,
               itemBuilder: (context, index) {
@@ -105,14 +94,10 @@ class _UnitsPageState extends State<UnitsPage> {
                     vertical: 6,
                   ),
                   child: ListTile(
-                    leading: const CircleAvatar(
-                      child: Icon(Icons.business),
-                    ),
+                    leading: const CircleAvatar(child: Icon(Icons.business)),
                     title: Text(
                       unit.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     subtitle: Text(unit.city),
                     trailing: PopupMenuButton<String>(
@@ -122,9 +107,7 @@ class _UnitsPageState extends State<UnitsPage> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => AddUnitPage(
-                                  unit: unit,
-                                ),
+                                builder: (_) => AddUnitPage(unit: unit),
                               ),
                             ).then((_) {
                               _loadUnits();

@@ -116,81 +116,79 @@ class _FirefightersPageState extends State<FirefightersPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(_errorMessage!, textAlign: TextAlign.center),
-                        const SizedBox(height: 12),
-                        FilledButton(
-                          onPressed: _loadFirefighters,
-                          child: const Text('Повторити'),
-                        ),
-                      ],
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_errorMessage!, textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    FilledButton(
+                      onPressed: _loadFirefighters,
+                      child: const Text('Повторити'),
                     ),
-                  ),
-                )
-              : _firefighters.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text('У довіднику ще немає газодимозахисників.'),
-                            const SizedBox(height: 12),
-                            FilledButton.icon(
-                              onPressed: _openEditor,
-                              icon: const Icon(Icons.person_add),
-                              label: const Text('Додати газодимозахисника'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _loadFirefighters,
-                      child: ListView.builder(
-                        itemCount: _firefighters.length,
-                        itemBuilder: (context, index) {
-                          final firefighter = _firefighters[index];
-                          return Card(
-                            margin: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            child: ListTile(
-                              leading: const CircleAvatar(
-                                child: Icon(Icons.person),
-                              ),
-                              title: Text(firefighter.fullName),
-                              subtitle: Text(firefighter.watch),
-                              trailing: PopupMenuButton<String>(
-                                onSelected: (value) {
-                                  if (value == 'edit') {
-                                    _openEditor(firefighter);
-                                  } else if (value == 'delete') {
-                                    _delete(firefighter);
-                                  }
-                                },
-                                itemBuilder: (context) => const [
-                                  PopupMenuItem(
-                                    value: 'edit',
-                                    child: Text('Редагувати'),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'delete',
-                                    child: Text('Видалити'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
+                  ],
+                ),
+              ),
+            )
+          : _firefighters.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('У довіднику ще немає газодимозахисників.'),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: _openEditor,
+                      icon: const Icon(Icons.person_add),
+                      label: const Text('Додати газодимозахисника'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _loadFirefighters,
+              child: ListView.builder(
+                itemCount: _firefighters.length,
+                itemBuilder: (context, index) {
+                  final firefighter = _firefighters[index];
+                  return Card(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    child: ListTile(
+                      leading: const CircleAvatar(child: Icon(Icons.person)),
+                      title: Text(firefighter.fullName),
+                      subtitle: Text(firefighter.watch),
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (value) {
+                          if (value == 'edit') {
+                            _openEditor(firefighter);
+                          } else if (value == 'delete') {
+                            _delete(firefighter);
+                          }
                         },
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                            value: 'edit',
+                            child: Text('Редагувати'),
+                          ),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Видалити'),
+                          ),
+                        ],
                       ),
                     ),
+                  );
+                },
+              ),
+            ),
     );
   }
 }
