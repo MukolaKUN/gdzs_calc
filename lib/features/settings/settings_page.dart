@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import '../units/units_page.dart';
-import 'apparatus_page.dart';
 import 'package:gdzs_calc/features/apparatus/apparatus_page.dart';
+import '../units/units_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gdzs_calc/shared/models/apparatus.dart';
 import 'package:gdzs_calc/shared/repositories/apparatus_repository.dart';
+
 import 'add_apparatus_page.dart';
 
 class ApparatusListPage extends StatefulWidget {
@@ -23,6 +24,7 @@ class _ApparatusListPageState extends State<ApparatusListPage> {
 
   Future<void> _load() async {
     final data = await _repository.getAll();
+    if (!mounted) return;
 
     setState(() {
       _apparatus = data;
@@ -30,8 +32,22 @@ class _ApparatusListPageState extends State<ApparatusListPage> {
   }
 
   Future<void> _delete(Apparatus apparatus) async {
-    await _repository.delete(apparatus.id!);
+    final id = apparatus.id;
+    if (id == null) return;
 
+    await _repository.delete(id);
+    await _load();
+  }
+
+  Future<void> _openEditor([Apparatus? apparatus]) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AddApparatusPage(apparatus: apparatus),
+      ),
+    );
+
+    if (!mounted) return;
     await _load();
   }
 
@@ -39,24 +55,15 @@ class _ApparatusListPageState extends State<ApparatusListPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Апарати"),
+        title: const Text('Апарати'),
       ),
       floatingActionButton: FloatingActionButton(
+        onPressed: _openEditor,
         child: const Icon(Icons.add),
-        onPressed: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const AddApparatusPage(),
-            ),
-          );
-
-          _load();
-        },
       ),
       body: _apparatus.isEmpty
           ? const Center(
-              child: Text("Немає апаратів"),
+              child: Text('Немає апаратів'),
             )
           : ListView.builder(
               itemCount: _apparatus.length,
@@ -69,13 +76,28 @@ class _ApparatusListPageState extends State<ApparatusListPage> {
                     leading: const Icon(Icons.air),
                     title: Text(item.name),
                     subtitle: Text(
-                        "${item.pressure} бар | ${item.volume} л"),
-                    trailing: IconButton(
-                      icon: const Icon(
-                        Icons.delete,
-                        color: Colors.red,
-                      ),
-                      onPressed: () => _delete(item),
+                      '${item.workingPressure} бар • '
+                      '${item.cylinderVolume} л × ${item.cylindersCount} • '
+                      'резерв ${item.reservePressure} бар',
+                    ),
+                    trailing: PopupMenuButton<String>(
+                      onSelected: (value) {
+                        if (value == 'edit') {
+                          _openEditor(item);
+                        } else if (value == 'delete') {
+                          _delete(item);
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(
+                          value: 'edit',
+                          child: Text('Редагувати'),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Text('Видалити'),
+                        ),
+                      ],
                     ),
                   ),
                 );

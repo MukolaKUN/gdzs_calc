@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:gdzs_calc/shared/models/unit.dart';
 import 'package:gdzs_calc/shared/repositories/unit_repository.dart';
 import '../settings/add_unit_page.dart';
-import 'package:gdzs_calc/shared/theme/app_sizes.dart';
 import 'package:gdzs_calc/shared/widgets/app_snackbar.dart';
 
 class UnitsPage extends StatefulWidget {

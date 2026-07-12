@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../create_crew/create_crew_page.dart';
 import '../settings/settings_page.dart';
+import '../team/new_team_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -27,7 +27,7 @@ class HomePage extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                       builder: (_) => const CreateCrewPage(),
+                        builder: (_) => const NewTeamPage(),
                       ),
                     );
                   },
