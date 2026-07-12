@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gdzs_calc/features/apparatus/apparatus_page.dart';
+import 'package:gdzs_calc/features/firefighters/firefighters_page.dart';
 import '../units/units_page.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -60,6 +61,14 @@ class SettingsPage extends StatelessWidget {
               title: Text("Газодимозахисники"),
               subtitle: Text("Особовий склад"),
               trailing: Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const FirefightersPage(),
+                  ),
+                );
+              },
             ),
           ),
 

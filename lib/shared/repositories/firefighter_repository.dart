@@ -7,7 +7,7 @@ class FirefighterRepository {
 
     final result = await db.query(
       'firefighters',
-      orderBy: 'fullName',
+      orderBy: 'watch, fullName',
     );
 
     return result.map((e) => Firefighter.fromMap(e)).toList();

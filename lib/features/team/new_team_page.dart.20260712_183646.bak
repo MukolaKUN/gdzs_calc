@@ -28,7 +28,6 @@ class _NewTeamPageState extends State<NewTeamPage> {
   List<Unit> _units = [];
   List<Apparatus> _apparatus = [];
   List<Firefighter> _firefighters = [];
-
   bool _isLoading = true;
   String? _loadError;
   int _step = 0;
@@ -40,12 +39,8 @@ class _NewTeamPageState extends State<NewTeamPage> {
 
   DateTime? _inclusionTime;
   DateTime? _arrivalTime;
-
   final Map<int, TextEditingController> _startPressureControllers = {};
   final Map<int, TextEditingController> _arrivalPressureControllers = {};
-  final Map<int, int> _estimatedArrivalPressures = {};
-  final Set<int> _manuallyEditedArrivalPressureIds = {};
-
   WorkLoad _workLoad = WorkLoad.medium;
   String? _pressureError;
   String? _calculationError;
@@ -70,18 +65,18 @@ class _NewTeamPageState extends State<NewTeamPage> {
     _loadData();
   }
 
-  @override
-  void dispose() {
-    _disposeControllers(_startPressureControllers);
-    _disposeControllers(_arrivalPressureControllers);
-    super.dispose();
-  }
-
   void _disposeControllers(Map<int, TextEditingController> controllers) {
     for (final controller in controllers.values) {
       controller.dispose();
     }
     controllers.clear();
+  }
+
+  @override
+  void dispose() {
+    _disposeControllers(_startPressureControllers);
+    _disposeControllers(_arrivalPressureControllers);
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -98,27 +93,22 @@ class _NewTeamPageState extends State<NewTeamPage> {
       final selectedApparatusId = _selectedApparatus?.id;
 
       if (!mounted) return;
-
       setState(() {
         _units = units;
         _apparatus = apparatus;
         _firefighters = firefighters;
         _selectedUnit = _findUnit(units, selectedUnitId);
         _selectedApparatus = _findApparatus(apparatus, selectedApparatusId);
-
         _selectedFirefighterIds.removeWhere(
           (id) => !firefighters.any((firefighter) => firefighter.id == id),
         );
-
         if (_leaderId != null && !_selectedFirefighterIds.contains(_leaderId)) {
           _leaderId = null;
         }
-
         _isLoading = false;
       });
     } catch (_) {
       if (!mounted) return;
-
       setState(() {
         _loadError = 'Не вдалося завантажити довідники. Спробуйте ще раз.';
         _isLoading = false;
@@ -131,7 +121,6 @@ class _NewTeamPageState extends State<NewTeamPage> {
       context,
       MaterialPageRoute(builder: (_) => const UnitsPage()),
     );
-
     if (!mounted) return;
     await _loadData();
   }
@@ -141,7 +130,6 @@ class _NewTeamPageState extends State<NewTeamPage> {
       context,
       MaterialPageRoute(builder: (_) => const ApparatusPage()),
     );
-
     if (!mounted) return;
     await _loadData();
   }
@@ -151,7 +139,6 @@ class _NewTeamPageState extends State<NewTeamPage> {
       context,
       MaterialPageRoute(builder: (_) => const FirefightersPage()),
     );
-
     if (!mounted) return;
     await _loadData();
   }
@@ -176,8 +163,7 @@ class _NewTeamPageState extends State<NewTeamPage> {
 
     setState(() {
       if (selected) {
-        if (_selectedFirefighterIds.length < 5 &&
-            !_selectedFirefighterIds.contains(id)) {
+        if (_selectedFirefighterIds.length < 5) {
           _selectedFirefighterIds.add(id);
         }
       } else {
@@ -193,28 +179,18 @@ class _NewTeamPageState extends State<NewTeamPage> {
     final apparatus = _selectedApparatus;
     if (apparatus == null) return;
 
-    _disposeControllers(_startPressureControllers);
-    _disposeControllers(_arrivalPressureControllers);
-
-    for (final id in _selectedFirefighterIds) {
-      _startPressureControllers[id] = TextEditingController(
-        text: apparatus.workingPressure.toString(),
-      );
-    }
-
-    final now = DateTime.now();
-
     setState(() {
-      _inclusionTime = DateTime(
-        now.year,
-        now.month,
-        now.day,
-        now.hour,
-        now.minute,
-      );
+      _inclusionTime = DateTime.now();
       _arrivalTime = null;
-      _estimatedArrivalPressures.clear();
-      _manuallyEditedArrivalPressureIds.clear();
+      _disposeControllers(_startPressureControllers);
+      _disposeControllers(_arrivalPressureControllers);
+
+      for (final id in _selectedFirefighterIds) {
+        _startPressureControllers[id] = TextEditingController(
+          text: apparatus.workingPressure.toString(),
+        );
+      }
+
       _pressureError = null;
       _calculationError = null;
       _result = null;
@@ -234,7 +210,6 @@ class _NewTeamPageState extends State<NewTeamPage> {
         );
       },
     );
-
     if (selectedTime == null) return null;
 
     return DateTime(
@@ -249,17 +224,14 @@ class _NewTeamPageState extends State<NewTeamPage> {
   Future<void> _changeInclusionTime() async {
     final currentTime = _inclusionTime;
     if (currentTime == null) return;
-
     final selectedTime = await _pickTime(currentTime);
     if (selectedTime == null || !mounted) return;
-
     setState(() => _inclusionTime = selectedTime);
   }
 
   Future<void> _changeArrivalTime() async {
     final inclusionTime = _inclusionTime;
     final currentTime = _arrivalTime;
-
     if (inclusionTime == null || currentTime == null) return;
 
     final selectedTime = await showTimePicker(
@@ -273,7 +245,6 @@ class _NewTeamPageState extends State<NewTeamPage> {
         );
       },
     );
-
     if (selectedTime == null || !mounted) return;
 
     var arrivalTime = DateTime(
@@ -283,33 +254,24 @@ class _NewTeamPageState extends State<NewTeamPage> {
       selectedTime.hour,
       selectedTime.minute,
     );
-
     if (arrivalTime.isBefore(inclusionTime)) {
       arrivalTime = arrivalTime.add(const Duration(days: 1));
     }
 
-    setState(() {
-      _arrivalTime = arrivalTime;
-      _refreshEstimatedArrivalPressures();
-    });
+    setState(() => _arrivalTime = arrivalTime);
   }
 
   void _continueToArrival() {
-    final formState = _inclusionFormKey.currentState;
-    if (formState == null || !formState.validate()) return;
+    if (!_inclusionFormKey.currentState!.validate()) return;
 
     final apparatus = _selectedApparatus;
     if (apparatus == null) return;
-
     final minimumAllowedPressure = (apparatus.workingPressure * 0.9).ceil();
-
-    final hasLowPressure = _selectedFirefighterIds.any((id) {
-      final pressure = int.tryParse(
-        _startPressureControllers[id]?.text.trim() ?? '',
-      );
-      return pressure == null || pressure < minimumAllowedPressure;
-    });
-
+    final hasLowPressure = _selectedFirefighterIds.any(
+      (id) =>
+          int.parse(_startPressureControllers[id]!.text.trim()) <
+          minimumAllowedPressure,
+    );
     if (hasLowPressure) {
       setState(() {
         _pressureError = 'Тиск у балоні менший ніж 90% робочого тиску апарата';
@@ -317,113 +279,31 @@ class _NewTeamPageState extends State<NewTeamPage> {
       return;
     }
 
-    final now = DateTime.now();
-
     setState(() {
       _pressureError = null;
-      _arrivalTime ??= DateTime(
-        now.year,
-        now.month,
-        now.day,
-        now.hour,
-        now.minute,
-      );
-      _refreshEstimatedArrivalPressures();
+      _arrivalTime ??= DateTime.now();
+
+      if (_arrivalPressureControllers.isEmpty) {
+        for (final id in _selectedFirefighterIds) {
+          _arrivalPressureControllers[id] = TextEditingController(
+            text: _startPressureControllers[id]!.text,
+          );
+        }
+      }
+
       _step = 2;
     });
   }
 
-  void _refreshEstimatedArrivalPressures({bool force = false}) {
-    final apparatus = _selectedApparatus;
-    final inclusionTime = _inclusionTime;
-    final arrivalTime = _arrivalTime;
-
-    if (apparatus == null || inclusionTime == null || arrivalTime == null) {
-      return;
-    }
-
-    if (force) {
-      _manuallyEditedArrivalPressureIds.clear();
-    }
-
-    final travelTimeMinutes = arrivalTime
-        .difference(inclusionTime)
-        .inMinutes
-        .clamp(0, 1440)
-        .toInt();
-
-    for (final id in _selectedFirefighterIds) {
-      final startPressure = int.tryParse(
-        _startPressureControllers[id]?.text.trim() ?? '',
-      );
-
-      if (startPressure == null) continue;
-
-      final estimatedPressure =
-          GdzsCalculator.calculateEstimatedArrivalPressure(
-            startPressure: startPressure,
-            travelTimeMinutes: travelTimeMinutes,
-            cylinderVolume: apparatus.cylinderVolume,
-            cylindersCount: apparatus.cylindersCount,
-            workLoad: _workLoad,
-          );
-
-      _estimatedArrivalPressures[id] = estimatedPressure;
-
-      final controller = _arrivalPressureControllers.putIfAbsent(
-        id,
-        () => TextEditingController(),
-      );
-
-      final shouldUpdate =
-          force ||
-          !_manuallyEditedArrivalPressureIds.contains(id) ||
-          controller.text.trim().isEmpty;
-
-      if (shouldUpdate) {
-        _setControllerText(controller, estimatedPressure);
-      }
-    }
-  }
-
-  void _setControllerText(TextEditingController controller, int value) {
-    final text = value.toString();
-    controller.value = TextEditingValue(
-      text: text,
-      selection: TextSelection.collapsed(offset: text.length),
-    );
-  }
-
-  String _arrivalPressureStatus(int id) {
-    final estimatedPressure = _estimatedArrivalPressures[id];
-    final actualPressure = int.tryParse(
-      _arrivalPressureControllers[id]?.text.trim() ?? '',
-    );
-
-    if (estimatedPressure == null || actualPressure == null) {
-      return '';
-    }
-
-    final deviation = actualPressure - estimatedPressure;
-
-    if (deviation == 0) {
-      return 'Збігається з розрахунковим тиском';
-    }
-
-    final sign = deviation > 0 ? '+' : '';
-    return 'Відхилення від розрахункового: $sign$deviation бар';
-  }
-
   void _calculate() {
     FocusScope.of(context).unfocus();
+    _arrivalFormKey.currentState?.save();
 
-    final formState = _arrivalFormKey.currentState;
-    if (formState == null || !formState.validate()) return;
+    if (!_arrivalFormKey.currentState!.validate()) return;
 
     final apparatus = _selectedApparatus;
     final inclusionTime = _inclusionTime;
     final arrivalTime = _arrivalTime;
-
     if (apparatus == null || inclusionTime == null || arrivalTime == null) {
       return;
     }
@@ -431,14 +311,12 @@ class _NewTeamPageState extends State<NewTeamPage> {
     final startPressures = _selectedFirefighterIds
         .map((id) => int.parse(_startPressureControllers[id]!.text.trim()))
         .toList();
-
     final arrivalPressures = _selectedFirefighterIds
         .map((id) => int.parse(_arrivalPressureControllers[id]!.text.trim()))
         .toList();
 
     debugPrint('startPressures: $startPressures');
     debugPrint('arrivalPressures: $arrivalPressures');
-
     try {
       final result = GdzsCalculator.calculateCompressedAir(
         startPressures: startPressures,
@@ -450,22 +328,18 @@ class _NewTeamPageState extends State<NewTeamPage> {
         reservePressure: apparatus.reservePressure,
         workLoad: _workLoad,
       );
-
       setState(() {
         _result = result;
         _calculationError = null;
         _step = 3;
       });
     } on ArgumentError catch (error) {
-      setState(() {
-        _calculationError = error.message?.toString();
-      });
+      setState(() => _calculationError = error.message?.toString());
     }
   }
 
   void _goBack() {
     if (_step == 0) return;
-
     setState(() {
       _step -= 1;
       _pressureError = null;
@@ -548,7 +422,7 @@ class _NewTeamPageState extends State<NewTeamPage> {
           )
         else
           DropdownButtonFormField<Unit>(
-            value: _selectedUnit,
+            initialValue: _selectedUnit,
             decoration: const InputDecoration(labelText: 'Підрозділ'),
             items: _units
                 .map(
@@ -558,9 +432,7 @@ class _NewTeamPageState extends State<NewTeamPage> {
                   ),
                 )
                 .toList(),
-            onChanged: (unit) {
-              setState(() => _selectedUnit = unit);
-            },
+            onChanged: (unit) => setState(() => _selectedUnit = unit),
           ),
         const SizedBox(height: 16),
         if (_apparatus.isEmpty)
@@ -571,7 +443,7 @@ class _NewTeamPageState extends State<NewTeamPage> {
           )
         else
           DropdownButtonFormField<Apparatus>(
-            value: _selectedApparatus,
+            initialValue: _selectedApparatus,
             decoration: const InputDecoration(labelText: 'Апарат для ланки'),
             items: _apparatus
                 .map(
@@ -604,7 +476,6 @@ class _NewTeamPageState extends State<NewTeamPage> {
             final id = firefighter.id!;
             final isSelected = _selectedFirefighterIds.contains(id);
             final canSelect = isSelected || _selectedFirefighterIds.length < 5;
-
             return Card(
               child: Column(
                 children: [
@@ -619,13 +490,15 @@ class _NewTeamPageState extends State<NewTeamPage> {
                     },
                   ),
                   if (isSelected)
-                    RadioListTile<int>(
-                      value: id,
+                    RadioGroup<int>(
                       groupValue: _leaderId,
-                      title: const Text('Командир ланки'),
                       onChanged: (value) {
                         setState(() => _leaderId = value);
                       },
+                      child: RadioListTile<int>(
+                        value: id,
+                        title: const Text('Командир ланки'),
+                      ),
                     ),
                 ],
               ),
@@ -646,7 +519,6 @@ class _NewTeamPageState extends State<NewTeamPage> {
   Widget _buildInclusionStep() {
     final apparatus = _selectedApparatus!;
     final inclusionTime = _inclusionTime!;
-
     return Form(
       key: _inclusionFormKey,
       child: Column(
@@ -673,6 +545,11 @@ class _NewTeamPageState extends State<NewTeamPage> {
               controller: _startPressureControllers[firefighter.id!]!,
               minValue: 1,
               maxValue: apparatus.workingPressure,
+              onChanged: (_) {
+                setState(() {
+                  _pressureError = null;
+                });
+              },
             ),
           ),
           if (_pressureError != null)
@@ -690,7 +567,6 @@ class _NewTeamPageState extends State<NewTeamPage> {
 
   Widget _buildArrivalStep() {
     final arrivalTime = _arrivalTime!;
-
     return Form(
       key: _arrivalFormKey,
       child: Column(
@@ -709,72 +585,21 @@ class _NewTeamPageState extends State<NewTeamPage> {
               child: const Text('Змінити'),
             ),
           ),
-          const Text(
-            'Застосунок уже підставив розрахунковий тиск. '
-            'Звірте його з фактичним показником і за потреби виправте.',
-          ),
-          const SizedBox(height: 12),
-          ..._selectedFirefighters.map((firefighter) {
-            final id = firefighter.id!;
-            final startPressure = int.parse(
-              _startPressureControllers[id]!.text.trim(),
-            );
-            final estimatedPressure =
-                _estimatedArrivalPressures[id] ?? startPressure;
-            final status = _arrivalPressureStatus(id);
-            final actualPressure = int.tryParse(
-              _arrivalPressureControllers[id]?.text.trim() ?? '',
-            );
-            final matchesEstimate = actualPressure == estimatedPressure;
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                PressureInput(
-                  key: ValueKey('arrival-$id'),
-                  firefighterName: firefighter.fullName,
-                  isLeader: id == _leaderId,
-                  controller: _arrivalPressureControllers[id]!,
-                  minValue: 0,
-                  maxValue: startPressure,
-                  helperText:
-                      'Розрахунковий тиск: $estimatedPressure бар. '
-                      'Початковий: $startPressure бар',
-                  onChanged: (_) {
-                    setState(() {
-                      _manuallyEditedArrivalPressureIds.add(id);
-                    });
-                  },
-                ),
-                if (status.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                    child: Text(
-                      status,
-                      style: TextStyle(
-                        color: matchesEstimate ? Colors.green : Colors.orange,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-              ],
-            );
-          }),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _refreshEstimatedArrivalPressures(force: true);
-                });
-              },
-              icon: const Icon(Icons.refresh),
-              label: const Text('Оновити розрахункові значення'),
+          ..._selectedFirefighters.map(
+            (firefighter) => PressureInput(
+              key: ValueKey('arrival-${firefighter.id}'),
+              firefighterName: firefighter.fullName,
+              isLeader: firefighter.id == _leaderId,
+              controller: _arrivalPressureControllers[firefighter.id!]!,
+              minValue: 0,
+              maxValue: int.parse(
+                _startPressureControllers[firefighter.id]!.text.trim(),
+              ),
             ),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<WorkLoad>(
-            value: _workLoad,
+            initialValue: _workLoad,
             decoration: const InputDecoration(labelText: 'Навантаження'),
             items: const [
               DropdownMenuItem(
@@ -788,10 +613,7 @@ class _NewTeamPageState extends State<NewTeamPage> {
             ],
             onChanged: (workLoad) {
               if (workLoad != null) {
-                setState(() {
-                  _workLoad = workLoad;
-                  _refreshEstimatedArrivalPressures();
-                });
+                setState(() => _workLoad = workLoad);
               }
             },
           ),
@@ -811,7 +633,6 @@ class _NewTeamPageState extends State<NewTeamPage> {
   Widget _buildResultStep() {
     final result = _result;
     if (result == null) return const SizedBox.shrink();
-
     final controllingFirefighter =
         _selectedFirefighters[result.controllingMemberIndex];
 
@@ -904,7 +725,6 @@ class _StepIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const labels = ['Склад', 'Включення', 'Прибуття', 'Результат'];
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       child: Row(
@@ -914,7 +734,6 @@ class _StepIndicator extends StatelessWidget {
           final color = isActive || isComplete
               ? Theme.of(context).colorScheme.primary
               : Theme.of(context).colorScheme.outline;
-
           return Expanded(
             child: Column(
               children: [

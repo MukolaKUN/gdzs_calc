@@ -84,6 +84,74 @@ class _NewTeamPageState extends State<NewTeamPage> {
     controllers.clear();
   }
 
+  void _recalculateEstimatedArrivalPressures({bool resetManualEdits = false}) {
+    final apparatus = _selectedApparatus;
+    final inclusionTime = _inclusionTime;
+    final arrivalTime = _arrivalTime;
+    if (apparatus == null || inclusionTime == null || arrivalTime == null) {
+      return;
+    }
+
+    if (resetManualEdits) {
+      _manuallyEditedArrivalPressureIds.clear();
+    }
+
+    final travelTimeMinutes = arrivalTime.difference(inclusionTime).inMinutes;
+
+    for (final id in _selectedFirefighterIds) {
+      if (_manuallyEditedArrivalPressureIds.contains(id)) continue;
+
+      final startPressure = int.tryParse(
+        _startPressureControllers[id]?.text.trim() ?? '',
+      );
+      if (startPressure == null) continue;
+
+      final estimatedPressure =
+          GdzsCalculator.calculateEstimatedArrivalPressure(
+            startPressure: startPressure,
+            travelTimeMinutes: travelTimeMinutes,
+            cylinderVolume: apparatus.cylinderVolume,
+            cylindersCount: apparatus.cylindersCount,
+            workLoad: _workLoad,
+          );
+
+      _estimatedArrivalPressures[id] = estimatedPressure;
+      final estimatedText = estimatedPressure.toString();
+      final controller = _arrivalPressureControllers[id];
+
+      if (controller == null) {
+        _arrivalPressureControllers[id] = TextEditingController(
+          text: estimatedText,
+        );
+      } else if (controller.text != estimatedText) {
+        controller.value = TextEditingValue(
+          text: estimatedText,
+          selection: TextSelection.collapsed(offset: estimatedText.length),
+        );
+      }
+    }
+  }
+
+  void _refreshEstimatedArrivalPressures() {
+    setState(() {
+      _recalculateEstimatedArrivalPressures(resetManualEdits: true);
+    });
+  }
+
+  String? _arrivalPressureStatus(int id) {
+    final estimatedPressure = _estimatedArrivalPressures[id];
+    final actualPressure = int.tryParse(
+      _arrivalPressureControllers[id]?.text.trim() ?? '',
+    );
+    if (estimatedPressure == null || actualPressure == null) return null;
+
+    final deviation = actualPressure - estimatedPressure;
+    if (deviation == 0) return 'Збігається з розрахунковим';
+
+    final sign = deviation > 0 ? '+' : '';
+    return 'Відхилення: $sign$deviation бар';
+  }
+
   Future<void> _loadData() async {
     setState(() {
       _isLoading = true;
@@ -195,6 +263,8 @@ class _NewTeamPageState extends State<NewTeamPage> {
 
     _disposeControllers(_startPressureControllers);
     _disposeControllers(_arrivalPressureControllers);
+    _estimatedArrivalPressures.clear();
+    _manuallyEditedArrivalPressureIds.clear();
 
     for (final id in _selectedFirefighterIds) {
       _startPressureControllers[id] = TextEditingController(
@@ -202,19 +272,9 @@ class _NewTeamPageState extends State<NewTeamPage> {
       );
     }
 
-    final now = DateTime.now();
-
     setState(() {
-      _inclusionTime = DateTime(
-        now.year,
-        now.month,
-        now.day,
-        now.hour,
-        now.minute,
-      );
+      _inclusionTime = DateTime.now();
       _arrivalTime = null;
-      _estimatedArrivalPressures.clear();
-      _manuallyEditedArrivalPressureIds.clear();
       _pressureError = null;
       _calculationError = null;
       _result = null;
@@ -290,7 +350,7 @@ class _NewTeamPageState extends State<NewTeamPage> {
 
     setState(() {
       _arrivalTime = arrivalTime;
-      _refreshEstimatedArrivalPressures();
+      _recalculateEstimatedArrivalPressures();
     });
   }
 
@@ -317,101 +377,12 @@ class _NewTeamPageState extends State<NewTeamPage> {
       return;
     }
 
-    final now = DateTime.now();
-
     setState(() {
       _pressureError = null;
-      _arrivalTime ??= DateTime(
-        now.year,
-        now.month,
-        now.day,
-        now.hour,
-        now.minute,
-      );
-      _refreshEstimatedArrivalPressures();
+      _arrivalTime ??= DateTime.now();
+      _recalculateEstimatedArrivalPressures();
       _step = 2;
     });
-  }
-
-  void _refreshEstimatedArrivalPressures({bool force = false}) {
-    final apparatus = _selectedApparatus;
-    final inclusionTime = _inclusionTime;
-    final arrivalTime = _arrivalTime;
-
-    if (apparatus == null || inclusionTime == null || arrivalTime == null) {
-      return;
-    }
-
-    if (force) {
-      _manuallyEditedArrivalPressureIds.clear();
-    }
-
-    final travelTimeMinutes = arrivalTime
-        .difference(inclusionTime)
-        .inMinutes
-        .clamp(0, 1440)
-        .toInt();
-
-    for (final id in _selectedFirefighterIds) {
-      final startPressure = int.tryParse(
-        _startPressureControllers[id]?.text.trim() ?? '',
-      );
-
-      if (startPressure == null) continue;
-
-      final estimatedPressure =
-          GdzsCalculator.calculateEstimatedArrivalPressure(
-            startPressure: startPressure,
-            travelTimeMinutes: travelTimeMinutes,
-            cylinderVolume: apparatus.cylinderVolume,
-            cylindersCount: apparatus.cylindersCount,
-            workLoad: _workLoad,
-          );
-
-      _estimatedArrivalPressures[id] = estimatedPressure;
-
-      final controller = _arrivalPressureControllers.putIfAbsent(
-        id,
-        () => TextEditingController(),
-      );
-
-      final shouldUpdate =
-          force ||
-          !_manuallyEditedArrivalPressureIds.contains(id) ||
-          controller.text.trim().isEmpty;
-
-      if (shouldUpdate) {
-        _setControllerText(controller, estimatedPressure);
-      }
-    }
-  }
-
-  void _setControllerText(TextEditingController controller, int value) {
-    final text = value.toString();
-    controller.value = TextEditingValue(
-      text: text,
-      selection: TextSelection.collapsed(offset: text.length),
-    );
-  }
-
-  String _arrivalPressureStatus(int id) {
-    final estimatedPressure = _estimatedArrivalPressures[id];
-    final actualPressure = int.tryParse(
-      _arrivalPressureControllers[id]?.text.trim() ?? '',
-    );
-
-    if (estimatedPressure == null || actualPressure == null) {
-      return '';
-    }
-
-    final deviation = actualPressure - estimatedPressure;
-
-    if (deviation == 0) {
-      return 'Збігається з розрахунковим тиском';
-    }
-
-    final sign = deviation > 0 ? '+' : '';
-    return 'Відхилення від розрахункового: $sign$deviation бар';
   }
 
   void _calculate() {
@@ -710,8 +681,8 @@ class _NewTeamPageState extends State<NewTeamPage> {
             ),
           ),
           const Text(
-            'Застосунок уже підставив розрахунковий тиск. '
-            'Звірте його з фактичним показником і за потреби виправте.',
+            'Звірте розрахунковий тиск кожного газодимозахисника з фактичним '
+            'показником та за потреби відредагуйте його',
           ),
           const SizedBox(height: 12),
           ..._selectedFirefighters.map((firefighter) {
@@ -719,58 +690,30 @@ class _NewTeamPageState extends State<NewTeamPage> {
             final startPressure = int.parse(
               _startPressureControllers[id]!.text.trim(),
             );
-            final estimatedPressure =
-                _estimatedArrivalPressures[id] ?? startPressure;
-            final status = _arrivalPressureStatus(id);
-            final actualPressure = int.tryParse(
-              _arrivalPressureControllers[id]?.text.trim() ?? '',
-            );
-            final matchesEstimate = actualPressure == estimatedPressure;
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                PressureInput(
-                  key: ValueKey('arrival-$id'),
-                  firefighterName: firefighter.fullName,
-                  isLeader: id == _leaderId,
-                  controller: _arrivalPressureControllers[id]!,
-                  minValue: 0,
-                  maxValue: startPressure,
-                  helperText:
-                      'Розрахунковий тиск: $estimatedPressure бар. '
-                      'Початковий: $startPressure бар',
-                  onChanged: (_) {
-                    setState(() {
-                      _manuallyEditedArrivalPressureIds.add(id);
-                    });
-                  },
-                ),
-                if (status.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                    child: Text(
-                      status,
-                      style: TextStyle(
-                        color: matchesEstimate ? Colors.green : Colors.orange,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-              ],
-            );
-          }),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: () {
+            return PressureInput(
+              key: ValueKey('arrival-$id'),
+              firefighterName: firefighter.fullName,
+              isLeader: id == _leaderId,
+              controller: _arrivalPressureControllers[id]!,
+              minValue: 0,
+              maxValue: startPressure,
+              helperText:
+                  'Розрахунковий тиск: '
+                  '${_estimatedArrivalPressures[id]} бар. '
+                  'Звірте з фактичним',
+              statusText: _arrivalPressureStatus(id),
+              onEdited: () {
                 setState(() {
-                  _refreshEstimatedArrivalPressures(force: true);
+                  _manuallyEditedArrivalPressureIds.add(id);
                 });
               },
-              icon: const Icon(Icons.refresh),
-              label: const Text('Оновити розрахункові значення'),
-            ),
+            );
+          }),
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: _refreshEstimatedArrivalPressures,
+            child: const Text('Оновити розрахункові значення'),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<WorkLoad>(
@@ -790,7 +733,7 @@ class _NewTeamPageState extends State<NewTeamPage> {
               if (workLoad != null) {
                 setState(() {
                   _workLoad = workLoad;
-                  _refreshEstimatedArrivalPressures();
+                  _recalculateEstimatedArrivalPressures();
                 });
               }
             },

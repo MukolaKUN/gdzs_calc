@@ -1,3 +1,175 @@
+param(
+    [string]$ProjectPath = "D:\gdzs_calc"
+)
+
+$ErrorActionPreference = "Stop"
+
+$project = [System.IO.Path]::GetFullPath($ProjectPath)
+$pubspec = Join-Path $project "pubspec.yaml"
+
+if (-not (Test-Path $pubspec)) {
+    throw "Не знайдено pubspec.yaml у $project"
+}
+
+$teamFile = Join-Path $project "lib\features\team\new_team_page.dart"
+$pressureFile = Join-Path $project "lib\features\team\widgets\pressure_input.dart"
+
+New-Item -ItemType Directory -Force -Path (Split-Path $pressureFile) | Out-Null
+
+$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
+if (Test-Path $teamFile) {
+    Copy-Item $teamFile "$teamFile.$timestamp.bak"
+}
+
+if (Test-Path $pressureFile) {
+    Copy-Item $pressureFile "$pressureFile.$timestamp.bak"
+}
+
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+$pressureContent = @'
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+class PressureInput extends StatelessWidget {
+  final String firefighterName;
+  final bool isLeader;
+  final TextEditingController controller;
+  final int minValue;
+  final int maxValue;
+  final ValueChanged<int>? onChanged;
+
+  const PressureInput({
+    super.key,
+    required this.firefighterName,
+    this.isLeader = false,
+    required this.controller,
+    required this.minValue,
+    required this.maxValue,
+    this.onChanged,
+  });
+
+  void _notifyChanged(String text) {
+    final pressure = int.tryParse(text.trim());
+    if (pressure != null &&
+        pressure >= minValue &&
+        pressure <= maxValue) {
+      onChanged?.call(pressure);
+    }
+  }
+
+  void _changeBy(int delta) {
+    final currentValue = int.tryParse(controller.text.trim()) ?? minValue;
+    final nextValue = (currentValue + delta).clamp(minValue, maxValue);
+    final nextText = nextValue.toString();
+
+    controller.value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(offset: nextText.length),
+    );
+
+    onChanged?.call(nextValue);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              firefighterName,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            if (isLeader)
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text('Командир ланки'),
+              ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              inputFormatters: const [
+                FilteringTextInputFormatter.digitsOnly,
+              ],
+              decoration: const InputDecoration(
+                labelText: 'Тиск',
+                suffixText: 'бар',
+              ),
+              onTap: () {
+                controller.selection = TextSelection(
+                  baseOffset: 0,
+                  extentOffset: controller.text.length,
+                );
+              },
+              onChanged: _notifyChanged,
+              onFieldSubmitted: _notifyChanged,
+              validator: (value) {
+                final pressure = int.tryParse(value?.trim() ?? '');
+                if (pressure == null ||
+                    pressure < minValue ||
+                    pressure > maxValue) {
+                  return 'Від $minValue до $maxValue бар';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _PressureButton(
+                  label: '-10',
+                  onPressed: () => _changeBy(-10),
+                ),
+                _PressureButton(
+                  label: '-1',
+                  onPressed: () => _changeBy(-1),
+                ),
+                _PressureButton(
+                  label: '+1',
+                  onPressed: () => _changeBy(1),
+                ),
+                _PressureButton(
+                  label: '+10',
+                  onPressed: () => _changeBy(10),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PressureButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onPressed;
+
+  const _PressureButton({
+    required this.label,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton(
+      onPressed: onPressed,
+      child: Text(label),
+    );
+  }
+}
+
+'@
+
+$teamContent = @'
 import 'package:flutter/material.dart';
 import 'package:gdzs_calc/features/apparatus/apparatus_page.dart';
 import 'package:gdzs_calc/features/firefighters/firefighters_page.dart';
@@ -43,8 +215,6 @@ class _NewTeamPageState extends State<NewTeamPage> {
 
   final Map<int, TextEditingController> _startPressureControllers = {};
   final Map<int, TextEditingController> _arrivalPressureControllers = {};
-  final Map<int, int> _estimatedArrivalPressures = {};
-  final Set<int> _manuallyEditedArrivalPressureIds = {};
 
   WorkLoad _workLoad = WorkLoad.medium;
   String? _pressureError;
@@ -53,7 +223,9 @@ class _NewTeamPageState extends State<NewTeamPage> {
 
   List<Firefighter> get _selectedFirefighters => _selectedFirefighterIds
       .map(
-        (id) => _firefighters.firstWhere((firefighter) => firefighter.id == id),
+        (id) => _firefighters.firstWhere(
+          (firefighter) => firefighter.id == id,
+        ),
       )
       .toList();
 
@@ -77,7 +249,9 @@ class _NewTeamPageState extends State<NewTeamPage> {
     super.dispose();
   }
 
-  void _disposeControllers(Map<int, TextEditingController> controllers) {
+  void _disposeControllers(
+    Map<int, TextEditingController> controllers,
+  ) {
     for (final controller in controllers.values) {
       controller.dispose();
     }
@@ -104,13 +278,19 @@ class _NewTeamPageState extends State<NewTeamPage> {
         _apparatus = apparatus;
         _firefighters = firefighters;
         _selectedUnit = _findUnit(units, selectedUnitId);
-        _selectedApparatus = _findApparatus(apparatus, selectedApparatusId);
-
-        _selectedFirefighterIds.removeWhere(
-          (id) => !firefighters.any((firefighter) => firefighter.id == id),
+        _selectedApparatus = _findApparatus(
+          apparatus,
+          selectedApparatusId,
         );
 
-        if (_leaderId != null && !_selectedFirefighterIds.contains(_leaderId)) {
+        _selectedFirefighterIds.removeWhere(
+          (id) => !firefighters.any(
+            (firefighter) => firefighter.id == id,
+          ),
+        );
+
+        if (_leaderId != null &&
+            !_selectedFirefighterIds.contains(_leaderId)) {
           _leaderId = null;
         }
 
@@ -120,7 +300,8 @@ class _NewTeamPageState extends State<NewTeamPage> {
       if (!mounted) return;
 
       setState(() {
-        _loadError = 'Не вдалося завантажити довідники. Спробуйте ще раз.';
+        _loadError =
+            'Не вдалося завантажити довідники. Спробуйте ще раз.';
         _isLoading = false;
       });
     }
@@ -163,14 +344,20 @@ class _NewTeamPageState extends State<NewTeamPage> {
     return null;
   }
 
-  Apparatus? _findApparatus(List<Apparatus> apparatus, int? id) {
+  Apparatus? _findApparatus(
+    List<Apparatus> apparatus,
+    int? id,
+  ) {
     for (final item in apparatus) {
       if (item.id == id) return item;
     }
     return null;
   }
 
-  void _toggleFirefighter(Firefighter firefighter, bool selected) {
+  void _toggleFirefighter(
+    Firefighter firefighter,
+    bool selected,
+  ) {
     final id = firefighter.id;
     if (id == null) return;
 
@@ -202,19 +389,9 @@ class _NewTeamPageState extends State<NewTeamPage> {
       );
     }
 
-    final now = DateTime.now();
-
     setState(() {
-      _inclusionTime = DateTime(
-        now.year,
-        now.month,
-        now.day,
-        now.hour,
-        now.minute,
-      );
+      _inclusionTime = DateTime.now();
       _arrivalTime = null;
-      _estimatedArrivalPressures.clear();
-      _manuallyEditedArrivalPressureIds.clear();
       _pressureError = null;
       _calculationError = null;
       _result = null;
@@ -229,7 +406,9 @@ class _NewTeamPageState extends State<NewTeamPage> {
       builder: (context, child) {
         final mediaQuery = MediaQuery.of(context);
         return MediaQuery(
-          data: mediaQuery.copyWith(alwaysUse24HourFormat: true),
+          data: mediaQuery.copyWith(
+            alwaysUse24HourFormat: true,
+          ),
           child: child!,
         );
       },
@@ -268,7 +447,9 @@ class _NewTeamPageState extends State<NewTeamPage> {
       builder: (context, child) {
         final mediaQuery = MediaQuery.of(context);
         return MediaQuery(
-          data: mediaQuery.copyWith(alwaysUse24HourFormat: true),
+          data: mediaQuery.copyWith(
+            alwaysUse24HourFormat: true,
+          ),
           child: child!,
         );
       },
@@ -288,10 +469,7 @@ class _NewTeamPageState extends State<NewTeamPage> {
       arrivalTime = arrivalTime.add(const Duration(days: 1));
     }
 
-    setState(() {
-      _arrivalTime = arrivalTime;
-      _refreshEstimatedArrivalPressures();
-    });
+    setState(() => _arrivalTime = arrivalTime);
   }
 
   void _continueToArrival() {
@@ -301,7 +479,8 @@ class _NewTeamPageState extends State<NewTeamPage> {
     final apparatus = _selectedApparatus;
     if (apparatus == null) return;
 
-    final minimumAllowedPressure = (apparatus.workingPressure * 0.9).ceil();
+    final minimumAllowedPressure =
+        (apparatus.workingPressure * 0.9).ceil();
 
     final hasLowPressure = _selectedFirefighterIds.any((id) {
       final pressure = int.tryParse(
@@ -312,106 +491,25 @@ class _NewTeamPageState extends State<NewTeamPage> {
 
     if (hasLowPressure) {
       setState(() {
-        _pressureError = 'Тиск у балоні менший ніж 90% робочого тиску апарата';
+        _pressureError =
+            'Тиск у балоні менший ніж 90% робочого тиску апарата';
       });
       return;
     }
 
-    final now = DateTime.now();
+    if (_arrivalPressureControllers.isEmpty) {
+      for (final id in _selectedFirefighterIds) {
+        _arrivalPressureControllers[id] = TextEditingController(
+          text: _startPressureControllers[id]!.text.trim(),
+        );
+      }
+    }
 
     setState(() {
       _pressureError = null;
-      _arrivalTime ??= DateTime(
-        now.year,
-        now.month,
-        now.day,
-        now.hour,
-        now.minute,
-      );
-      _refreshEstimatedArrivalPressures();
+      _arrivalTime ??= DateTime.now();
       _step = 2;
     });
-  }
-
-  void _refreshEstimatedArrivalPressures({bool force = false}) {
-    final apparatus = _selectedApparatus;
-    final inclusionTime = _inclusionTime;
-    final arrivalTime = _arrivalTime;
-
-    if (apparatus == null || inclusionTime == null || arrivalTime == null) {
-      return;
-    }
-
-    if (force) {
-      _manuallyEditedArrivalPressureIds.clear();
-    }
-
-    final travelTimeMinutes = arrivalTime
-        .difference(inclusionTime)
-        .inMinutes
-        .clamp(0, 1440)
-        .toInt();
-
-    for (final id in _selectedFirefighterIds) {
-      final startPressure = int.tryParse(
-        _startPressureControllers[id]?.text.trim() ?? '',
-      );
-
-      if (startPressure == null) continue;
-
-      final estimatedPressure =
-          GdzsCalculator.calculateEstimatedArrivalPressure(
-            startPressure: startPressure,
-            travelTimeMinutes: travelTimeMinutes,
-            cylinderVolume: apparatus.cylinderVolume,
-            cylindersCount: apparatus.cylindersCount,
-            workLoad: _workLoad,
-          );
-
-      _estimatedArrivalPressures[id] = estimatedPressure;
-
-      final controller = _arrivalPressureControllers.putIfAbsent(
-        id,
-        () => TextEditingController(),
-      );
-
-      final shouldUpdate =
-          force ||
-          !_manuallyEditedArrivalPressureIds.contains(id) ||
-          controller.text.trim().isEmpty;
-
-      if (shouldUpdate) {
-        _setControllerText(controller, estimatedPressure);
-      }
-    }
-  }
-
-  void _setControllerText(TextEditingController controller, int value) {
-    final text = value.toString();
-    controller.value = TextEditingValue(
-      text: text,
-      selection: TextSelection.collapsed(offset: text.length),
-    );
-  }
-
-  String _arrivalPressureStatus(int id) {
-    final estimatedPressure = _estimatedArrivalPressures[id];
-    final actualPressure = int.tryParse(
-      _arrivalPressureControllers[id]?.text.trim() ?? '',
-    );
-
-    if (estimatedPressure == null || actualPressure == null) {
-      return '';
-    }
-
-    final deviation = actualPressure - estimatedPressure;
-
-    if (deviation == 0) {
-      return 'Збігається з розрахунковим тиском';
-    }
-
-    final sign = deviation > 0 ? '+' : '';
-    return 'Відхилення від розрахункового: $sign$deviation бар';
   }
 
   void _calculate() {
@@ -424,16 +522,26 @@ class _NewTeamPageState extends State<NewTeamPage> {
     final inclusionTime = _inclusionTime;
     final arrivalTime = _arrivalTime;
 
-    if (apparatus == null || inclusionTime == null || arrivalTime == null) {
+    if (apparatus == null ||
+        inclusionTime == null ||
+        arrivalTime == null) {
       return;
     }
 
     final startPressures = _selectedFirefighterIds
-        .map((id) => int.parse(_startPressureControllers[id]!.text.trim()))
+        .map(
+          (id) => int.parse(
+            _startPressureControllers[id]!.text.trim(),
+          ),
+        )
         .toList();
 
     final arrivalPressures = _selectedFirefighterIds
-        .map((id) => int.parse(_arrivalPressureControllers[id]!.text.trim()))
+        .map(
+          (id) => int.parse(
+            _arrivalPressureControllers[id]!.text.trim(),
+          ),
+        )
         .toList();
 
     debugPrint('startPressures: $startPressures');
@@ -486,36 +594,39 @@ class _NewTeamPageState extends State<NewTeamPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _loadError != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_loadError!, textAlign: TextAlign.center),
-                    const SizedBox(height: 12),
-                    FilledButton(
-                      onPressed: _loadData,
-                      child: const Text('Повторити'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : SafeArea(
-              child: Column(
-                children: [
-                  _StepIndicator(currentStep: _step),
-                  Expanded(
-                    child: ListView(
-                      padding: const EdgeInsets.all(16),
-                      children: [_buildStep()],
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _loadError!,
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        FilledButton(
+                          onPressed: _loadData,
+                          child: const Text('Повторити'),
+                        ),
+                      ],
                     ),
                   ),
-                  _buildNavigation(),
-                ],
-              ),
-            ),
+                )
+              : SafeArea(
+                  child: Column(
+                    children: [
+                      _StepIndicator(currentStep: _step),
+                      Expanded(
+                        child: ListView(
+                          padding: const EdgeInsets.all(16),
+                          children: [_buildStep()],
+                        ),
+                      ),
+                      _buildNavigation(),
+                    ],
+                  ),
+                ),
     );
   }
 
@@ -538,7 +649,10 @@ class _NewTeamPageState extends State<NewTeamPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Склад ланки', style: Theme.of(context).textTheme.headlineSmall),
+        Text(
+          'Склад ланки',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
         const SizedBox(height: 16),
         if (_units.isEmpty)
           _EmptyDirectoryCard(
@@ -549,7 +663,9 @@ class _NewTeamPageState extends State<NewTeamPage> {
         else
           DropdownButtonFormField<Unit>(
             value: _selectedUnit,
-            decoration: const InputDecoration(labelText: 'Підрозділ'),
+            decoration: const InputDecoration(
+              labelText: 'Підрозділ',
+            ),
             items: _units
                 .map(
                   (unit) => DropdownMenuItem(
@@ -572,7 +688,9 @@ class _NewTeamPageState extends State<NewTeamPage> {
         else
           DropdownButtonFormField<Apparatus>(
             value: _selectedApparatus,
-            decoration: const InputDecoration(labelText: 'Апарат для ланки'),
+            decoration: const InputDecoration(
+              labelText: 'Апарат для ланки',
+            ),
             items: _apparatus
                 .map(
                   (apparatus) => DropdownMenuItem(
@@ -598,12 +716,13 @@ class _NewTeamPageState extends State<NewTeamPage> {
             onPressed: _openFirefightersDirectory,
           )
         else
-          ..._firefighters.where((firefighter) => firefighter.id != null).map((
-            firefighter,
-          ) {
+          ..._firefighters
+              .where((firefighter) => firefighter.id != null)
+              .map((firefighter) {
             final id = firefighter.id!;
             final isSelected = _selectedFirefighterIds.contains(id);
-            final canSelect = isSelected || _selectedFirefighterIds.length < 5;
+            final canSelect =
+                isSelected || _selectedFirefighterIds.length < 5;
 
             return Card(
               child: Column(
@@ -614,7 +733,10 @@ class _NewTeamPageState extends State<NewTeamPage> {
                     title: Text(firefighter.fullName),
                     onChanged: (selected) {
                       if (selected != null) {
-                        _toggleFirefighter(firefighter, selected);
+                        _toggleFirefighter(
+                          firefighter,
+                          selected,
+                        );
                       }
                     },
                   ),
@@ -670,7 +792,8 @@ class _NewTeamPageState extends State<NewTeamPage> {
               key: ValueKey('start-${firefighter.id}'),
               firefighterName: firefighter.fullName,
               isLeader: firefighter.id == _leaderId,
-              controller: _startPressureControllers[firefighter.id!]!,
+              controller:
+                  _startPressureControllers[firefighter.id!]!,
               minValue: 1,
               maxValue: apparatus.workingPressure,
             ),
@@ -680,7 +803,9 @@ class _NewTeamPageState extends State<NewTeamPage> {
               padding: const EdgeInsets.only(top: 8),
               child: Text(
                 _pressureError!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                ),
               ),
             ),
         ],
@@ -709,73 +834,27 @@ class _NewTeamPageState extends State<NewTeamPage> {
               child: const Text('Змінити'),
             ),
           ),
-          const Text(
-            'Застосунок уже підставив розрахунковий тиск. '
-            'Звірте його з фактичним показником і за потреби виправте.',
-          ),
-          const SizedBox(height: 12),
           ..._selectedFirefighters.map((firefighter) {
             final id = firefighter.id!;
             final startPressure = int.parse(
               _startPressureControllers[id]!.text.trim(),
             );
-            final estimatedPressure =
-                _estimatedArrivalPressures[id] ?? startPressure;
-            final status = _arrivalPressureStatus(id);
-            final actualPressure = int.tryParse(
-              _arrivalPressureControllers[id]?.text.trim() ?? '',
-            );
-            final matchesEstimate = actualPressure == estimatedPressure;
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                PressureInput(
-                  key: ValueKey('arrival-$id'),
-                  firefighterName: firefighter.fullName,
-                  isLeader: id == _leaderId,
-                  controller: _arrivalPressureControllers[id]!,
-                  minValue: 0,
-                  maxValue: startPressure,
-                  helperText:
-                      'Розрахунковий тиск: $estimatedPressure бар. '
-                      'Початковий: $startPressure бар',
-                  onChanged: (_) {
-                    setState(() {
-                      _manuallyEditedArrivalPressureIds.add(id);
-                    });
-                  },
-                ),
-                if (status.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                    child: Text(
-                      status,
-                      style: TextStyle(
-                        color: matchesEstimate ? Colors.green : Colors.orange,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-              ],
+            return PressureInput(
+              key: ValueKey('arrival-$id'),
+              firefighterName: firefighter.fullName,
+              isLeader: id == _leaderId,
+              controller: _arrivalPressureControllers[id]!,
+              minValue: 0,
+              maxValue: startPressure,
             );
           }),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _refreshEstimatedArrivalPressures(force: true);
-                });
-              },
-              icon: const Icon(Icons.refresh),
-              label: const Text('Оновити розрахункові значення'),
-            ),
-          ),
           const SizedBox(height: 12),
           DropdownButtonFormField<WorkLoad>(
             value: _workLoad,
-            decoration: const InputDecoration(labelText: 'Навантаження'),
+            decoration: const InputDecoration(
+              labelText: 'Навантаження',
+            ),
             items: const [
               DropdownMenuItem(
                 value: WorkLoad.medium,
@@ -788,10 +867,7 @@ class _NewTeamPageState extends State<NewTeamPage> {
             ],
             onChanged: (workLoad) {
               if (workLoad != null) {
-                setState(() {
-                  _workLoad = workLoad;
-                  _refreshEstimatedArrivalPressures();
-                });
+                setState(() => _workLoad = workLoad);
               }
             },
           ),
@@ -800,7 +876,9 @@ class _NewTeamPageState extends State<NewTeamPage> {
               padding: const EdgeInsets.only(top: 8),
               child: Text(
                 _calculationError!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                ),
               ),
             ),
         ],
@@ -818,7 +896,10 @@ class _NewTeamPageState extends State<NewTeamPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Результат', style: Theme.of(context).textTheme.headlineSmall),
+        Text(
+          'Результат',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
         const SizedBox(height: 12),
         Card(
           child: Padding(
@@ -830,7 +911,10 @@ class _NewTeamPageState extends State<NewTeamPage> {
                   'Мінімальний початковий тиск',
                   '${result.minimumStartPressure} бар',
                 ),
-                _ResultRow('Критичний тиск', '${result.criticalPressure} бар'),
+                _ResultRow(
+                  'Критичний тиск',
+                  '${result.criticalPressure} бар',
+                ),
                 _ResultRow(
                   'Розрахунок ведеться за',
                   controllingFirefighter.fullName,
@@ -839,14 +923,26 @@ class _NewTeamPageState extends State<NewTeamPage> {
                   'Максимальна витрата на прямуванні',
                   '${result.travelPressure} бар',
                 ),
-                _ResultRow('Тиск виходу', '${result.exitPressure} бар'),
-                _ResultRow('Тиск для роботи', '${result.workingPressure} бар'),
-                _ResultRow('Час прямування', '${result.travelTimeMinutes} хв'),
+                _ResultRow(
+                  'Тиск виходу',
+                  '${result.exitPressure} бар',
+                ),
+                _ResultRow(
+                  'Тиск для роботи',
+                  '${result.workingPressure} бар',
+                ),
+                _ResultRow(
+                  'Час прямування',
+                  '${result.travelTimeMinutes} хв',
+                ),
                 _ResultRow(
                   'Розрахунковий час роботи',
                   '${result.workingTimeMinutes} хв',
                 ),
-                _ResultRow('Початок виходу', _formatTime24(result.exitTime)),
+                _ResultRow(
+                  'Початок виходу',
+                  _formatTime24(result.exitTime),
+                ),
               ],
             ),
           ),
@@ -856,7 +952,9 @@ class _NewTeamPageState extends State<NewTeamPage> {
             color: Theme.of(context).colorScheme.errorContainer,
             child: const Padding(
               padding: EdgeInsets.all(16),
-              child: Text('Ланка повинна негайно розпочати вихід'),
+              child: Text(
+                'Ланка повинна негайно розпочати вихід',
+              ),
             ),
           ),
       ],
@@ -871,22 +969,29 @@ class _NewTeamPageState extends State<NewTeamPage> {
         child: Row(
           children: [
             if (_step > 0)
-              OutlinedButton(onPressed: _goBack, child: const Text('Назад')),
+              OutlinedButton(
+                onPressed: _goBack,
+                child: const Text('Назад'),
+              ),
             if (_step > 0) const SizedBox(width: 12),
             Expanded(
               child: FilledButton(
                 onPressed: switch (_step) {
-                  0 => _canContinueComposition ? _startInclusion : null,
+                  0 => _canContinueComposition
+                      ? _startInclusion
+                      : null,
                   1 => _continueToArrival,
                   2 => _calculate,
                   _ => null,
                 },
-                child: Text(switch (_step) {
-                  0 => 'Далі',
-                  1 => 'Далі',
-                  2 => 'Розрахувати',
-                  _ => 'Готово',
-                }),
+                child: Text(
+                  switch (_step) {
+                    0 => 'Далі',
+                    1 => 'Далі',
+                    2 => 'Розрахувати',
+                    _ => 'Готово',
+                  },
+                ),
               ),
             ),
           ],
@@ -899,11 +1004,18 @@ class _NewTeamPageState extends State<NewTeamPage> {
 class _StepIndicator extends StatelessWidget {
   final int currentStep;
 
-  const _StepIndicator({required this.currentStep});
+  const _StepIndicator({
+    required this.currentStep,
+  });
 
   @override
   Widget build(BuildContext context) {
-    const labels = ['Склад', 'Включення', 'Прибуття', 'Результат'];
+    const labels = [
+      'Склад',
+      'Включення',
+      'Прибуття',
+      'Результат',
+    ];
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
@@ -929,7 +1041,10 @@ class _StepIndicator extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(labels[index], textAlign: TextAlign.center),
+                Text(
+                  labels[index],
+                  textAlign: TextAlign.center,
+                ),
               ],
             ),
           );
@@ -961,7 +1076,10 @@ class _EmptyDirectoryCard extends StatelessWidget {
             Text(message),
             if (actionLabel != null) ...[
               const SizedBox(height: 8),
-              OutlinedButton(onPressed: onPressed, child: Text(actionLabel!)),
+              OutlinedButton(
+                onPressed: onPressed,
+                child: Text(actionLabel!),
+              ),
             ],
           ],
         ),
@@ -974,7 +1092,10 @@ class _ResultRow extends StatelessWidget {
   final String label;
   final String value;
 
-  const _ResultRow(this.label, this.value);
+  const _ResultRow(
+    this.label,
+    this.value,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -989,11 +1110,45 @@ class _ResultRow extends StatelessWidget {
             child: Text(
               value,
               textAlign: TextAlign.end,
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+'@
+
+[System.IO.File]::WriteAllText($pressureFile, $pressureContent, $utf8NoBom)
+[System.IO.File]::WriteAllText($teamFile, $teamContent, $utf8NoBom)
+
+Write-Host "Файли замінено. Резервні копії мають суфікс .$timestamp.bak" -ForegroundColor Green
+
+Push-Location $project
+try {
+    Write-Host "`nФорматування..." -ForegroundColor Cyan
+    & dart format $teamFile $pressureFile
+    if ($LASTEXITCODE -ne 0) {
+        throw "dart format завершився з кодом $LASTEXITCODE"
+    }
+
+    Write-Host "`nFlutter analyze..." -ForegroundColor Cyan
+    & flutter analyze --no-pub
+    if ($LASTEXITCODE -ne 0) {
+        throw "flutter analyze завершився з кодом $LASTEXITCODE"
+    }
+
+    Write-Host "`nFlutter test..." -ForegroundColor Cyan
+    & flutter test --no-pub
+    if ($LASTEXITCODE -ne 0) {
+        throw "flutter test завершився з кодом $LASTEXITCODE"
+    }
+
+    Write-Host "`nГотово. Тепер виконай: flutter run" -ForegroundColor Green
+} finally {
+    Pop-Location
 }

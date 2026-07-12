@@ -48,11 +48,10 @@ class CompressedAirCalculationResult {
 class GdzsCalculator {
   GdzsCalculator._();
 
-  /// Розраховує прогнозний тиск після прямування до місця роботи.
+  /// Розраховує орієнтовний тиск після прямування.
   ///
-  /// Це орієнтовне значення для контролю постовим. Остаточний розрахунок
-  /// безпечних параметрів виконується за фактичним тиском, який доповів
-  /// командир ланки після прибуття до місця роботи.
+  /// Прогноз допомагає звірити показник манометра, але не замінює фактичне
+  /// значення, яке використовується в остаточному розрахунку.
   static int calculateEstimatedArrivalPressure({
     required int startPressure,
     required int travelTimeMinutes,
@@ -61,31 +60,42 @@ class GdzsCalculator {
     required WorkLoad workLoad,
   }) {
     if (startPressure < 0) {
-      throw ArgumentError('Початковий тиск не може бути від’ємним.');
+      throw ArgumentError.value(
+        startPressure,
+        'startPressure',
+        'Початковий тиск не може бути від’ємним.',
+      );
     }
-
     if (travelTimeMinutes < 0) {
-      throw ArgumentError('Час прямування не може бути від’ємним.');
+      throw ArgumentError.value(
+        travelTimeMinutes,
+        'travelTimeMinutes',
+        'Час прямування не може бути від’ємним.',
+      );
     }
-
     if (cylinderVolume <= 0) {
-      throw ArgumentError('Об’єм балона повинен бути більшим за нуль.');
+      throw ArgumentError.value(
+        cylinderVolume,
+        'cylinderVolume',
+        'Об’єм балона повинен бути більшим за нуль.',
+      );
     }
-
     if (cylindersCount <= 0) {
-      throw ArgumentError('Кількість балонів повинна бути більшою за нуль.');
+      throw ArgumentError.value(
+        cylindersCount,
+        'cylindersCount',
+        'Кількість балонів повинна бути більшою за нуль.',
+      );
     }
 
-    final exactPressureDrop =
-        travelTimeMinutes *
-        workLoad.airConsumption /
-        (cylindersCount * cylinderVolume);
+    final pressureDrop =
+        (travelTimeMinutes *
+                workLoad.airConsumption /
+                (cylindersCount * cylinderVolume))
+            .ceil();
+    final estimatedArrivalPressure = startPressure - pressureDrop;
 
-    // Для прогнозу використовуємо безпечне округлення витрати в більшу сторону.
-    final pressureDrop = exactPressureDrop.ceil();
-    final estimatedPressure = startPressure - pressureDrop;
-
-    return estimatedPressure.clamp(0, startPressure).toInt();
+    return estimatedArrivalPressure.clamp(0, startPressure);
   }
 
   static CompressedAirCalculationResult calculateCompressedAir({
