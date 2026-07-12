@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../create_crew/create_crew_page.dart';
+import '../settings/settings_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -21,7 +23,14 @@ class HomePage extends StatelessWidget {
               SizedBox(
                 height: 70,
                 child: FilledButton.icon(
-                  onPressed: () {},
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                       builder: (_) => const CreateCrewPage(),
+                      ),
+                    );
+                  },
                   icon: const Icon(Icons.groups),
                   label: const Text(
                     'СТВОРИТИ ЛАНКУ',
@@ -62,7 +71,14 @@ class HomePage extends StatelessWidget {
                   leading: const Icon(Icons.settings),
                   title: const Text('Налаштування'),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () {},
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const SettingsPage(),
+                      ),
+                    );
+                  },
                 ),
               ),
 
