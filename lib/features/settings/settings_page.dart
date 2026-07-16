@@ -1,79 +1,182 @@
 import 'package:flutter/material.dart';
+import 'package:gdzs_calc/app/app_services.dart';
 import 'package:gdzs_calc/features/apparatus/apparatus_page.dart';
 import 'package:gdzs_calc/features/firefighters/firefighters_page.dart';
-import '../units/units_page.dart';
+import 'package:gdzs_calc/features/units/units_page.dart';
+import 'package:gdzs_calc/shared/models/exit_warning_settings.dart';
+import 'package:gdzs_calc/shared/repositories/exit_warning_settings_repository.dart';
+import 'package:gdzs_calc/shared/services/exit_warning_service.dart';
 
-class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
+class SettingsPage extends StatefulWidget {
+  final ExitWarningSettingsRepository? warningSettingsRepository;
+  final NotificationGateway? notificationGateway;
+
+  const SettingsPage({
+    super.key,
+    this.warningSettingsRepository,
+    this.notificationGateway,
+  });
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  late final ExitWarningSettingsRepository _repository;
+  NotificationGateway? _gateway;
+  ExitWarningSettings? _settings;
+  bool _exactAvailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _repository =
+        widget.warningSettingsRepository ??
+        const ExitWarningSettingsRepository();
+    _gateway =
+        widget.notificationGateway ??
+        (AppServices.isInitialized ? AppServices.notificationGateway : null);
+    _load();
+  }
+
+  Future<void> _load() async {
+    final settings = await _repository.load();
+    final exact = await _gateway?.canScheduleExactAlarms() ?? false;
+    if (!mounted) return;
+    setState(() {
+      _settings = settings;
+      _exactAvailable = exact;
+    });
+  }
+
+  Future<void> _update(ExitWarningSettings value) async {
+    setState(() => _settings = value);
+    await _repository.save(value);
+    if (AppServices.isInitialized) {
+      await AppServices.synchronizeActiveSession();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Налаштування")),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: ListTile(
-              leading: Icon(Icons.business),
-              title: Text("Підрозділ"),
-              subtitle: Text("Назва та основні дані"),
-              trailing: Icon(Icons.chevron_right),
-
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const UnitsPage()),
-                );
-              },
+      appBar: AppBar(title: const Text('Налаштування')),
+      body: _settings == null
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                _warningSettings(),
+                const SizedBox(height: 12),
+                _directoryCard(
+                  icon: Icons.business,
+                  title: 'Підрозділ',
+                  subtitle: 'Назва та основні дані',
+                  page: const UnitsPage(),
+                ),
+                const SizedBox(height: 12),
+                _directoryCard(
+                  icon: Icons.air,
+                  title: 'Апарати',
+                  subtitle: 'Типи апаратів та балонів',
+                  page: const ApparatusPage(),
+                ),
+                const SizedBox(height: 12),
+                _directoryCard(
+                  icon: Icons.groups,
+                  title: 'Газодимозахисники',
+                  subtitle: 'Особовий склад',
+                  page: const FirefightersPage(),
+                ),
+                const SizedBox(height: 12),
+                const Card(
+                  child: ListTile(
+                    leading: Icon(Icons.info_outline),
+                    title: Text('Про застосунок'),
+                    trailing: Icon(Icons.chevron_right),
+                  ),
+                ),
+              ],
             ),
-          ),
+    );
+  }
 
-          SizedBox(height: 12),
-
-          Card(
-            child: ListTile(
-              leading: Icon(Icons.air),
-              title: Text("Апарати"),
-              subtitle: Text("Типи апаратів та балонів"),
-              trailing: Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ApparatusPage()),
-                );
-              },
+  Widget _warningSettings() {
+    final settings = _settings!;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Text(
+                'Попередження про вихід',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
             ),
-          ),
-
-          SizedBox(height: 12),
-
-          Card(
-            child: ListTile(
-              leading: Icon(Icons.groups),
-              title: Text("Газодимозахисники"),
-              subtitle: Text("Особовий склад"),
-              trailing: Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const FirefightersPage()),
-                );
-              },
+            SwitchListTile(
+              title: const Text('Системні сповіщення'),
+              value: settings.systemNotifications,
+              onChanged: (value) =>
+                  _update(settings.copyWith(systemNotifications: value)),
             ),
-          ),
-
-          SizedBox(height: 12),
-
-          Card(
-            child: ListTile(
-              leading: Icon(Icons.info_outline),
-              title: Text("Про застосунок"),
-              trailing: Icon(Icons.chevron_right),
+            SwitchListTile(
+              title: const Text('Звук'),
+              value: settings.sound,
+              onChanged: (value) => _update(settings.copyWith(sound: value)),
             ),
-          ),
-        ],
+            SwitchListTile(
+              title: const Text('Вібрація'),
+              value: settings.vibration,
+              onChanged: (value) =>
+                  _update(settings.copyWith(vibration: value)),
+            ),
+            SwitchListTile(
+              title: const Text('Попередження за 5 хвилин'),
+              value: settings.fiveMinutes,
+              onChanged: (value) =>
+                  _update(settings.copyWith(fiveMinutes: value)),
+            ),
+            SwitchListTile(
+              title: const Text('Попередження за 2 хвилини'),
+              value: settings.twoMinutes,
+              onChanged: (value) =>
+                  _update(settings.copyWith(twoMinutes: value)),
+            ),
+            SwitchListTile(
+              title: const Text('Попередження за 1 хвилину'),
+              value: settings.oneMinute,
+              onChanged: (value) =>
+                  _update(settings.copyWith(oneMinute: value)),
+            ),
+            if (!_exactAvailable)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 4, 16, 10),
+                child: Text(
+                  'Фонові сповіщення можуть спрацьовувати з невеликою затримкою',
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
+
+  Widget _directoryCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Widget page,
+  }) => Card(
+    child: ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () =>
+          Navigator.push(context, MaterialPageRoute(builder: (_) => page)),
+    ),
+  );
 }

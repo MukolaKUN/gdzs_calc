@@ -18,7 +18,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -31,6 +31,7 @@ class DatabaseService {
           )
         ''');
         await createTeamSessionTables(db);
+        await createAppSettingsTable(db);
 
         await _createApparatusTable(db);
 
@@ -78,6 +79,9 @@ class DatabaseService {
         }
         if (oldVersion < 4) {
           await createTeamSessionTables(db);
+        }
+        if (oldVersion < 5) {
+          await createAppSettingsTable(db);
         }
       },
     );
@@ -187,4 +191,12 @@ class DatabaseService {
       )
     ''');
   }
+
+  static Future<void> createAppSettingsTable(DatabaseExecutor db) =>
+      db.execute('''
+        CREATE TABLE app_settings(
+          settingKey TEXT PRIMARY KEY,
+          settingValue TEXT NOT NULL
+        )
+      ''');
 }

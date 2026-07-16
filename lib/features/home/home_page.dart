@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:gdzs_calc/app/app_services.dart';
 import 'package:gdzs_calc/features/history/history_page.dart';
 import 'package:gdzs_calc/features/settings/settings_page.dart';
 import 'package:gdzs_calc/features/team/active_team_page.dart';
@@ -21,7 +22,11 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _repository = widget.repository ?? const TeamSessionRepository();
+    _repository =
+        widget.repository ??
+        (AppServices.isInitialized
+            ? AppServices.teamRepository
+            : const TeamSessionRepository());
     _reload();
   }
 

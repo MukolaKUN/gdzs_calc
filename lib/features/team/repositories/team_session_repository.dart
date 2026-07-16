@@ -23,7 +23,8 @@ class TeamSessionRecord {
 
 class TeamSessionRepository {
   final Database? database;
-  const TeamSessionRepository({this.database});
+  final Future<void> Function(int sessionId)? onSessionDeleted;
+  const TeamSessionRepository({this.database, this.onSessionDeleted});
 
   Future<Database> get _database async => database ?? DatabaseService.database;
 
@@ -591,6 +592,7 @@ class TeamSessionRepository {
   Future<void> deleteSession(int sessionId) async {
     final db = await _database;
     await db.delete('team_sessions', where: 'id = ?', whereArgs: [sessionId]);
+    await onSessionDeleted?.call(sessionId);
   }
 
   Future<void> _transition(

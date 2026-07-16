@@ -1,16 +1,36 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:gdzs_calc/app/app_services.dart';
+import 'package:gdzs_calc/features/settings/settings_page.dart';
 import 'package:gdzs_calc/features/team/models/active_team_session.dart';
 import 'package:gdzs_calc/features/team/repositories/team_session_repository.dart';
 import 'package:gdzs_calc/features/team/widgets/pressure_check_sheet.dart';
 import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
+import 'package:gdzs_calc/shared/models/exit_warning_settings.dart';
+import 'package:gdzs_calc/shared/repositories/exit_warning_settings_repository.dart';
+import 'package:gdzs_calc/shared/services/exit_warning_service.dart';
+import 'package:gdzs_calc/shared/services/haptic_gateway.dart';
 import 'package:gdzs_calc/shared/widgets/app_button.dart';
 
 class ActiveTeamPage extends StatefulWidget {
   final int sessionId;
   final TeamSessionRepository? repository;
+  final ExitWarningService? exitWarningService;
+  final ExitWarningSettingsRepository? warningSettingsRepository;
+  final NotificationGateway? notificationGateway;
+  final HapticGateway? hapticGateway;
+  final DateTime Function()? now;
 
-  const ActiveTeamPage({super.key, required this.sessionId, this.repository});
+  const ActiveTeamPage({
+    super.key,
+    required this.sessionId,
+    this.repository,
+    this.exitWarningService,
+    this.warningSettingsRepository,
+    this.notificationGateway,
+    this.hapticGateway,
+    this.now,
+  });
 
   @override
   State<ActiveTeamPage> createState() => _ActiveTeamPageState();
@@ -24,16 +44,40 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
   ActiveTeamSession? _loadedSession;
   String? _loadError;
   late final TeamSessionRepository _repository;
+  late final ExitWarningService? _exitWarningService;
+  late final ExitWarningSettingsRepository? _warningSettingsRepository;
+  late final NotificationGateway? _notificationGateway;
+  late final HapticGateway _hapticGateway;
+  ExitWarningSettings _warningSettings = const ExitWarningSettings();
+  final Set<ExitWarningLevel> _firedHapticLevels = {};
+  final List<Timer> _hapticTimers = [];
+  bool _notificationsEnabled = false;
+  bool _exactWarningsAvailable = false;
+  bool _permissionDialogPending = false;
 
   ActiveTeamSession get session => _loadedSession!;
+  DateTime get _currentTime => widget.now?.call() ?? DateTime.now();
 
   @override
   void initState() {
     super.initState();
     _repository = widget.repository ?? const TeamSessionRepository();
-    _now = DateTime.now();
+    _exitWarningService =
+        widget.exitWarningService ??
+        (AppServices.isInitialized ? AppServices.exitWarningService : null);
+    _warningSettingsRepository =
+        widget.warningSettingsRepository ??
+        (AppServices.isInitialized ? AppServices.settingsRepository : null);
+    _notificationGateway =
+        widget.notificationGateway ??
+        widget.exitWarningService?.gateway ??
+        (AppServices.isInitialized ? AppServices.notificationGateway : null);
+    _hapticGateway = widget.hapticGateway ?? const SystemHapticGateway();
+    _now = _currentTime;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _now = DateTime.now());
+      if (!mounted) return;
+      setState(() => _now = _currentTime);
+      _processHapticThreshold();
     });
     _loadSession();
   }
@@ -45,16 +89,137 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       setState(() {
         _loadedSession = record?.session;
         _loadError = record == null ? 'Активну ланку не знайдено.' : null;
+        _now = _currentTime;
       });
+      if (record != null) await _synchronizeExitWarnings();
     } catch (_) {
       if (!mounted) return;
       setState(() => _loadError = 'Не вдалося завантажити активну ланку.');
     }
   }
 
+  Future<void> _synchronizeExitWarnings() async {
+    final settings =
+        await _warningSettingsRepository?.load() ??
+        const ExitWarningSettings(permissionPrompted: true);
+    final gateway = _notificationGateway;
+    var notificationsEnabled = false;
+    var exact = false;
+    if (gateway != null) {
+      notificationsEnabled = await gateway.notificationsEnabled();
+      exact = await gateway.canScheduleExactAlarms();
+    }
+    if (_exitWarningService != null) {
+      exact = await _exitWarningService.synchronize(
+        sessionId: widget.sessionId,
+        stage: session.stage,
+        plannedExitTime: session.currentPlannedExitTime,
+        settings: settings,
+        now: _currentTime,
+      );
+    }
+    if (!mounted) return;
+    setState(() {
+      _warningSettings = settings;
+      _notificationsEnabled = notificationsEnabled;
+      _exactWarningsAvailable = exact;
+    });
+    _processHapticThreshold();
+    await _offerNotificationPermissionIfNeeded();
+  }
+
+  Future<void> _offerNotificationPermissionIfNeeded() async {
+    final gateway = _notificationGateway;
+    if (gateway == null ||
+        !_warningSettings.systemNotifications ||
+        _warningSettings.permissionPrompted ||
+        session.stage == ActiveTeamStage.completed ||
+        _permissionDialogPending) {
+      return;
+    }
+    if (_notificationsEnabled) {
+      final settings = _warningSettings.copyWith(permissionPrompted: true);
+      await _warningSettingsRepository?.save(settings);
+      if (mounted) setState(() => _warningSettings = settings);
+      return;
+    }
+    _permissionDialogPending = true;
+    final allow = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Дозволити попередження про час виходу?'),
+        content: const Text(
+          'Застосунок зможе попередити про наближення часу виходу, навіть коли екран згорнуто',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Не зараз'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Дозволити'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    final granted = allow == true ? await gateway.requestPermission() : false;
+    final settings = _warningSettings.copyWith(permissionPrompted: true);
+    await _warningSettingsRepository?.save(settings);
+    if (!mounted) return;
+    setState(() {
+      _warningSettings = settings;
+      _notificationsEnabled = granted;
+      _permissionDialogPending = false;
+    });
+    if (granted) await _synchronizeExitWarnings();
+  }
+
+  void _processHapticThreshold() {
+    if (!mounted ||
+        _loadedSession == null ||
+        session.stage != ActiveTeamStage.working ||
+        !_warningSettings.vibration) {
+      return;
+    }
+    final level = ExitWarningService.levelFor(
+      session.remainingUntilPlannedExit(_now),
+    );
+    if (level == ExitWarningLevel.normal || !_firedHapticLevels.add(level)) {
+      return;
+    }
+    _performHaptic(level);
+  }
+
+  void _performHaptic(ExitWarningLevel level) {
+    if (!mounted) return;
+    if (level == ExitWarningLevel.fiveMinutes) {
+      unawaited(_hapticGateway.mediumImpact());
+      return;
+    }
+    final count = switch (level) {
+      ExitWarningLevel.oneMinute => 2,
+      ExitWarningLevel.exitNow => 3,
+      _ => 1,
+    };
+    unawaited(_hapticGateway.heavyImpact());
+    for (var index = 1; index < count; index++) {
+      late final Timer timer;
+      timer = Timer(Duration(milliseconds: 180 * index), () {
+        _hapticTimers.remove(timer);
+        if (mounted) unawaited(_hapticGateway.heavyImpact());
+      });
+      _hapticTimers.add(timer);
+    }
+  }
+
   @override
   void dispose() {
     _timer.cancel();
+    for (final timer in _hapticTimers) {
+      timer.cancel();
+    }
     super.dispose();
   }
 
@@ -417,6 +582,87 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
     ),
   );
 
+  Widget _exitTimerCard() {
+    final remaining = session.remainingUntilPlannedExit(_now);
+    final level = ExitWarningService.levelFor(remaining);
+    final color = switch (level) {
+      ExitWarningLevel.normal => Theme.of(context).colorScheme.primaryContainer,
+      ExitWarningLevel.fiveMinutes => const Color(0xFF5C4714),
+      ExitWarningLevel.twoMinutes => const Color(0xFF7A3F12),
+      ExitWarningLevel.oneMinute => const Color(0xFF711F24),
+      ExitWarningLevel.exitNow => const Color(0xFF8D151D),
+    };
+    final warningText = switch (level) {
+      ExitWarningLevel.normal => null,
+      ExitWarningLevel.fiveMinutes => 'Підготуйте ланку до виходу',
+      ExitWarningLevel.twoMinutes => 'Наближається час виходу',
+      ExitWarningLevel.oneMinute => 'До виходу менше хвилини',
+      ExitWarningLevel.exitNow => 'Настав час початку виходу з НДС',
+    };
+    return Card(
+      key: Key('exit-warning-${level.name}'),
+      color: color,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Text(
+              'До початку виходу з НДС',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              _duration(remaining),
+              key: const Key('До початку виходу з НДС'),
+              style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+            if (warningText != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                warningText,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text('Поточний час: ${_clock(_now)}'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _warningStatus() {
+    final (
+      icon,
+      text,
+    ) = !_warningSettings.systemNotifications || !_notificationsEnabled
+        ? (Icons.notifications_off_outlined, 'Системні сповіщення вимкнені')
+        : !_exactWarningsAvailable
+        ? (Icons.schedule, 'Точні фонові попередження недоступні')
+        : (Icons.notifications_active_outlined, 'Попередження активні');
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SettingsPage()),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 18),
+            const SizedBox(width: 6),
+            Flexible(child: Text(text)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _teamInfo() => Card(
     child: Padding(
       padding: const EdgeInsets.all(16),
@@ -549,10 +795,8 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _heading('Ланка працює в НДС'),
-        _timerCard(
-          'До початку виходу з НДС',
-          _duration(session.remainingUntilPlannedExit(_now)),
-        ),
+        _exitTimerCard(),
+        _warningStatus(),
         _teamInfo(),
         _pressureList(session.latestPressuresByFirefighterId),
         Text(
