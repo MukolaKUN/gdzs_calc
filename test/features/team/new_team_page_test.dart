@@ -8,190 +8,175 @@ import 'package:gdzs_calc/shared/models/firefighter.dart';
 import 'package:gdzs_calc/shared/models/unit.dart';
 
 void main() {
-  testWidgets('inclusion button creates an advancing session', (tester) async {
-    tester.view.physicalSize = const Size(1200, 1200);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final repository = _CreatingRepository();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: NewTeamPage(
-          teamSessionRepository: repository,
-          initialUnits: [Unit(id: 1, name: 'ДПРЧ-1', city: 'Київ')],
-          initialApparatus: [
-            Apparatus(
-              id: 1,
-              name: 'Drager',
-              workingPressure: 300,
-              cylinderVolume: 6.8,
-              cylindersCount: 1,
-              reservePressure: 50,
-            ),
-          ],
-          initialFirefighters: [
-            Firefighter(id: 1, fullName: 'Перший', watch: '1'),
-            Firefighter(id: 2, fullName: 'Другий', watch: '1'),
-          ],
-        ),
-      ),
+  testWidgets('default filter shows firefighters from all watches', (
+    tester,
+  ) async {
+    await _pumpSubject(tester);
+
+    expect(find.text('Усі караули'), findsOneWidget);
+    for (final id in [1, 7, 8, 9]) {
+      expect(find.byKey(ValueKey('candidate-$id')), findsOneWidget);
+    }
+  });
+
+  testWidgets('watch filter affects candidates only', (tester) async {
+    await _pumpSubject(tester);
+    await _toggleCandidate(tester, 1);
+    await _selectWatch(tester, '2-й караул');
+
+    expect(find.byKey(const ValueKey('candidate-1')), findsNothing);
+    expect(find.byKey(const ValueKey('candidate-7')), findsOneWidget);
+    expect(find.byKey(const ValueKey('selected-member-1')), findsOneWidget);
+    expect(find.text('1 із 5'), findsOneWidget);
+    expect(find.text('Змінити караул?'), findsNothing);
+  });
+
+  testWidgets('mixed team and leader survive filter changes', (tester) async {
+    await _pumpSubject(tester);
+    await _selectWatch(tester, '1-й караул');
+    await _toggleCandidate(tester, 1);
+    await _selectWatch(tester, '2-й караул');
+    await _toggleCandidate(tester, 7);
+    await _selectLeader(tester, 1);
+    await _selectWatch(tester, '3-й караул');
+
+    expect(find.byKey(const ValueKey('selected-member-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('selected-member-7')), findsOneWidget);
+    expect(find.text('2 із 5'), findsOneWidget);
+    expect(find.text('1-й караул · Командир'), findsOneWidget);
+  });
+
+  testWidgets('search is case insensitive and checks the whole name', (
+    tester,
+  ) async {
+    await _pumpSubject(tester);
+    await tester.enterText(
+      find.byKey(const Key('firefighter-search')),
+      'інШий КАРАУЛ',
     );
-
-    await tester.tap(find.byType(DropdownButtonFormField<Unit>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('ДПРЧ-1 (Київ)').last);
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byType(DropdownButtonFormField<Apparatus>));
-    await tester.tap(find.byType(DropdownButtonFormField<Apparatus>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Drager').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('watch-selector')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('1-й караул').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Перший'));
-    await tester.tap(find.text('Другий'));
     await tester.pump();
-    await tester.tap(find.byKey(const Key('leader-selector')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Перший').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Далі'));
-    await tester.pumpAndSettle();
 
-    expect(find.text('Увімкнутися в ЗІЗОД'), findsOneWidget);
-    final before = DateTime.now();
-    await tester.ensureVisible(find.text('Увімкнутися в ЗІЗОД'));
-    await tester.pump();
-    await tester.tap(find.text('Увімкнутися в ЗІЗОД'));
-    await tester.pumpAndSettle();
-    expect(find.text('Підтвердити включення в ЗІЗОД?'), findsOneWidget);
-    await tester.tap(find.text('Увімкнутися'));
-    await tester.pumpAndSettle();
-
-    expect(repository.session!.stage, ActiveTeamStage.advancing);
-    expect(repository.session!.arrivalTime, isNull);
-    expect(repository.session!.inclusionTime.isBefore(before), isFalse);
-    expect(find.text('Час прямування'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-
-    await tester.pumpWidget(const SizedBox.shrink());
+    expect(find.byKey(const ValueKey('candidate-7')), findsOneWidget);
+    expect(find.byKey(const ValueKey('candidate-1')), findsNothing);
   });
 
-  testWidgets('watch filter shows only firefighters from selected watch', (
+  testWidgets('search combines with watch filter and can be cleared', (
     tester,
   ) async {
-    _largeView(tester);
-    await tester.pumpWidget(_subject(_firefighters));
-
-    expect(find.text('Спочатку оберіть караул'), findsOneWidget);
-    expect(find.text('Перший'), findsNothing);
+    await _pumpSubject(tester);
     await _selectWatch(tester, '1-й караул');
-
-    expect(find.text('Перший'), findsOneWidget);
-    expect(find.text('Другий'), findsOneWidget);
-    expect(find.text('Інший караул'), findsNothing);
-  });
-
-  testWidgets('multiple selection limits leader choices to selected members', (
-    tester,
-  ) async {
-    _largeView(tester);
-    await tester.pumpWidget(_subject(_firefighters));
-    await _selectWatch(tester, '1-й караул');
-    await tester.tap(find.text('Перший'));
-    await tester.tap(find.text('Другий'));
+    await tester.enterText(
+      find.byKey(const Key('firefighter-search')),
+      'інший',
+    );
     await tester.pump();
 
-    expect(find.text('Обрано: 2'), findsOneWidget);
-    await tester.tap(find.byKey(const Key('leader-selector')));
-    await tester.pumpAndSettle();
-    expect(find.text('Перший'), findsNWidgets(2));
-    expect(find.text('Другий'), findsNWidgets(2));
-    expect(find.text('Третій'), findsOneWidget);
+    expect(find.text('Газодимозахисників не знайдено'), findsOneWidget);
+    expect(find.text('Змініть караул або очистьте пошук'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('clear-firefighter-search')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('candidate-1')), findsOneWidget);
+  });
+
+  testWidgets('selected team stays visible when search has no results', (
+    tester,
+  ) async {
+    await _pumpSubject(tester);
+    await _toggleCandidate(tester, 1);
+    await tester.enterText(
+      find.byKey(const Key('firefighter-search')),
+      'немає такого прізвища',
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('selected-member-1')), findsOneWidget);
+    expect(find.text('Газодимозахисників не знайдено'), findsOneWidget);
   });
 
   testWidgets('sixth member is rejected with a snackbar', (tester) async {
-    _largeView(tester);
-    await tester.pumpWidget(_subject(_firefighters));
-    await _selectWatch(tester, '1-й караул');
-    for (final name in ['Перший', 'Другий', 'Третій', 'Четвертий', 'П’ятий']) {
-      await tester.ensureVisible(find.text(name));
-      await tester.tap(find.text(name));
-      await tester.pump();
+    await _pumpSubject(tester);
+    for (final id in [1, 2, 3, 4, 5, 6]) {
+      await _toggleCandidate(tester, id);
     }
-    await tester.ensureVisible(find.text('Шостий'));
-    await tester.tap(find.text('Шостий'));
-    await tester.pump();
 
-    expect(find.text('Обрано: 5'), findsOneWidget);
+    expect(find.text('5 із 5'), findsOneWidget);
     expect(
       find.text('До складу ланки можна включити не більше 5 осіб'),
       findsOneWidget,
     );
   });
 
-  testWidgets('removing leader clears selection and asks for a new leader', (
+  testWidgets('removing leader clears leader and asks for replacement', (
     tester,
   ) async {
-    _largeView(tester);
-    await tester.pumpWidget(_subject(_firefighters));
-    await _selectWatch(tester, '1-й караул');
-    await tester.tap(find.text('Перший'));
-    await tester.tap(find.text('Другий'));
+    await _pumpSubject(tester);
+    await _toggleCandidate(tester, 1);
+    await _toggleCandidate(tester, 7);
+    await _selectLeader(tester, 1);
+    await tester.tap(find.byKey(const ValueKey('remove-member-1')));
     await tester.pump();
-    await _selectLeader(tester, 'Перший');
 
-    await tester.tap(find.text('Перший').first);
-    await tester.pump();
-    final leaderField = tester.widget<DropdownButtonFormField<int>>(
+    final field = tester.widget<DropdownButtonFormField<int>>(
       find.byKey(const Key('leader-selector')),
     );
-    expect(leaderField.initialValue, isNull);
+    expect(field.initialValue, isNull);
     expect(find.text('Оберіть нового командира ланки'), findsOneWidget);
   });
 
-  testWidgets('watch change can be cancelled or confirmed', (tester) async {
-    _largeView(tester);
-    await tester.pumpWidget(_subject(_firefighters));
-    await _selectWatch(tester, '1-й караул');
-    await tester.tap(find.text('Перший'));
-    await tester.pump();
-
-    await _requestWatch(tester, '2-й караул');
-    expect(find.text('Змінити караул?'), findsOneWidget);
-    await tester.tap(find.text('Скасувати'));
-    await tester.pumpAndSettle();
-    expect(find.text('Обрано: 1'), findsOneWidget);
-    expect(find.text('Перший'), findsOneWidget);
-
-    await _requestWatch(tester, '2-й караул');
-    await tester.tap(find.text('Змінити караул'));
-    await tester.pumpAndSettle();
-    expect(find.text('Обрано: 0'), findsOneWidget);
-    expect(find.text('Інший караул'), findsOneWidget);
-    expect(find.text('Перший'), findsNothing);
-  });
-
-  testWidgets('pressure fields are created only for selected members', (
+  testWidgets('pressure fields include every selected watch in chosen order', (
     tester,
   ) async {
-    _largeView(tester);
-    await tester.pumpWidget(_subject(_firefighters));
+    await _pumpSubject(tester);
     await _selectUnitAndApparatus(tester);
-    await _selectWatch(tester, '1-й караул');
-    await tester.tap(find.text('Перший'));
-    await tester.tap(find.text('Другий'));
-    await tester.pump();
-    await _selectLeader(tester, 'Перший');
+    await _toggleCandidate(tester, 7);
+    await _toggleCandidate(tester, 1);
+    await _selectLeader(tester, 7);
+    await tester.ensureVisible(find.text('Далі'));
     await tester.tap(find.text('Далі'));
     await tester.pumpAndSettle();
 
     expect(find.byType(TextFormField), findsNWidgets(2));
-    expect(find.text('Перший'), findsOneWidget);
-    expect(find.text('Другий'), findsOneWidget);
-    expect(find.text('Третій'), findsNothing);
+    expect(find.text('Інший караул · 2-й караул'), findsOneWidget);
+    expect(find.text('Перший · 1-й караул'), findsOneWidget);
+  });
+
+  testWidgets('inclusion creates a mixed advancing session with snapshots', (
+    tester,
+  ) async {
+    final repository = _CreatingRepository();
+    await _pumpSubject(tester, repository: repository);
+    await _selectUnitAndApparatus(tester);
+    await _toggleCandidate(tester, 1);
+    await _toggleCandidate(tester, 7);
+    await _selectLeader(tester, 1);
+    await tester.ensureVisible(find.text('Далі'));
+    await tester.tap(find.text('Далі'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Увімкнутися в ЗІЗОД'));
+    await tester.tap(find.text('Увімкнутися в ЗІЗОД'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Увімкнутися'));
+    await tester.pumpAndSettle();
+
+    expect(repository.session!.stage, ActiveTeamStage.advancing);
+    expect(repository.session!.participants.map((e) => e.watchNumber), [1, 2]);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('unspecified filter is offered only when needed', (tester) async {
+    await _pumpSubject(tester);
+    await tester.tap(find.byKey(const Key('watch-selector')));
+    await tester.pumpAndSettle();
+    final unspecifiedOption = find.descendant(
+      of: find.byType(DropdownMenuItem<int>),
+      matching: find.text('Без визначеного караулу'),
+    );
+    expect(unspecifiedOption, findsOneWidget);
+    await tester.tap(unspecifiedOption);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('candidate-9')), findsOneWidget);
+    expect(find.byKey(const ValueKey('candidate-1')), findsNothing);
   });
 
   testWidgets('returning from directory reloads firefighters', (tester) async {
@@ -220,14 +205,13 @@ void main() {
         ),
       ),
     );
-
     await tester.tap(find.text('Додати газодимозахисника'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Повернутися'));
     await tester.pumpAndSettle();
+
     expect(loadCount, 1);
-    await _selectWatch(tester, '3-й караул');
-    expect(find.text('Новий працівник'), findsOneWidget);
+    expect(find.byKey(const ValueKey('candidate-20')), findsOneWidget);
   });
 }
 
@@ -250,15 +234,26 @@ const _firefighters = [
   Firefighter(id: 5, fullName: 'П’ятий', watch: '1'),
   Firefighter(id: 6, fullName: 'Шостий', watch: '1'),
   Firefighter(id: 7, fullName: 'Інший караул', watch: '2'),
+  Firefighter(id: 8, fullName: 'Третій караул', watch: '3'),
+  Firefighter(id: 9, fullName: 'Без караулу', watch: ''),
 ];
 
-Widget _subject(List<Firefighter> firefighters) => MaterialApp(
-  home: NewTeamPage(
-    initialUnits: _units,
-    initialApparatus: _apparatus,
-    initialFirefighters: firefighters,
-  ),
-);
+Future<void> _pumpSubject(
+  WidgetTester tester, {
+  TeamSessionRepository? repository,
+}) async {
+  _largeView(tester);
+  await tester.pumpWidget(
+    MaterialApp(
+      home: NewTeamPage(
+        teamSessionRepository: repository,
+        initialUnits: _units,
+        initialApparatus: _apparatus,
+        initialFirefighters: _firefighters,
+      ),
+    ),
+  );
+}
 
 void _largeView(WidgetTester tester) {
   tester.view.physicalSize = const Size(1200, 1200);
@@ -267,27 +262,28 @@ void _largeView(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
+Future<void> _toggleCandidate(WidgetTester tester, int id) async {
+  final finder = find.byKey(ValueKey('candidate-$id'));
+  await tester.ensureVisible(finder);
+  await tester.tap(finder);
+  await tester.pump();
+}
+
 Future<void> _selectWatch(WidgetTester tester, String label) async {
-  await tester.tap(find.byKey(const Key('watch-selector')));
+  final field = find.byKey(const Key('watch-selector'));
+  await tester.ensureVisible(field);
+  await tester.tap(field);
   await tester.pumpAndSettle();
   await tester.tap(find.text(label).last);
   await tester.pumpAndSettle();
 }
 
-Future<void> _requestWatch(WidgetTester tester, String label) async {
-  await tester.ensureVisible(find.byKey(const Key('watch-selector')));
-  await tester.tap(find.byKey(const Key('watch-selector')));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text(label).last);
-  await tester.pumpAndSettle();
-}
-
-Future<void> _selectLeader(WidgetTester tester, String name) async {
-  await tester.ensureVisible(find.byKey(const Key('leader-selector')));
-  await tester.tap(find.byKey(const Key('leader-selector')));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text(name).last);
-  await tester.pumpAndSettle();
+Future<void> _selectLeader(WidgetTester tester, int id) async {
+  final field = find.byKey(const Key('leader-selector'));
+  await tester.ensureVisible(field);
+  final widget = tester.widget<DropdownButtonFormField<int>>(field);
+  widget.onChanged!(id);
+  await tester.pump();
 }
 
 Future<void> _selectUnitAndApparatus(WidgetTester tester) async {
@@ -318,9 +314,6 @@ class _CreatingRepository extends TeamSessionRepository {
   }
 
   @override
-  Future<TeamSessionRecord?> getById(int id) async => TeamSessionRecord(
-    id: id,
-    session: session!,
-    watchNumber: session!.participants.first.watchNumber,
-  );
+  Future<TeamSessionRecord?> getById(int id) async =>
+      TeamSessionRecord(id: id, session: session!);
 }

@@ -5,6 +5,7 @@ import 'package:gdzs_calc/shared/models/apparatus.dart';
 import 'package:gdzs_calc/shared/models/firefighter.dart';
 import 'package:gdzs_calc/shared/models/unit.dart';
 import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
+import 'package:gdzs_calc/shared/utils/firefighter_watch_groups.dart';
 import 'package:sqflite/sqflite.dart';
 
 class TeamSessionRecord {
@@ -16,6 +17,8 @@ class TeamSessionRecord {
     required this.session,
     this.watchNumber,
   });
+
+  String get watchLabel => teamWatchLabel(session.participants);
 }
 
 class TeamSessionRepository {
@@ -89,6 +92,55 @@ class TeamSessionRepository {
     return rows.isEmpty ? null : getById(rows.first['id'] as int);
   }
 
+  Future<List<ActiveTeamSession>> getCompletedSessions() async {
+    final db = await _database;
+    final sessionRows = await db.query(
+      'team_sessions',
+      where: 'stage = ?',
+      whereArgs: [activeTeamStageToStorage(ActiveTeamStage.completed)],
+      orderBy: 'completedAt DESC, id DESC',
+    );
+    if (sessionRows.isEmpty) return const [];
+
+    final ids = sessionRows.map((row) => row['id'] as int).toList();
+    final placeholders = List.filled(ids.length, '?').join(',');
+    final memberRows = await db.query(
+      'team_session_members',
+      where: 'sessionId IN ($placeholders)',
+      whereArgs: ids,
+      orderBy: 'sessionId, position',
+    );
+    final emergencyRows = await db.query(
+      'team_emergencies',
+      where: 'sessionId IN ($placeholders)',
+      whereArgs: ids,
+      orderBy: 'sessionId, startedAt, id',
+    );
+
+    final membersBySession = <int, List<Map<String, Object?>>>{};
+    for (final row in memberRows) {
+      membersBySession.putIfAbsent(row['sessionId'] as int, () => []).add(row);
+    }
+    final emergenciesBySession = <int, List<TeamEmergency>>{};
+    for (final row in emergencyRows) {
+      emergenciesBySession
+          .putIfAbsent(row['sessionId'] as int, () => [])
+          .add(_emergencyFromRow(row));
+    }
+
+    return [
+      for (final row in sessionRows)
+        _restoreSession(
+          StoredTeamSession.fromMap(row),
+          _membersFromRows(membersBySession[row['id']] ?? const []),
+          checks: const [],
+          checkDetails: const [],
+          events: const [],
+          emergencies: emergenciesBySession[row['id']] ?? const [],
+        ),
+    ];
+  }
+
   Future<TeamSessionRecord?> getById(int id) async {
     final db = await _database;
     final sessionRows = await db.query(
@@ -105,19 +157,7 @@ class TeamSessionRepository {
       whereArgs: [id],
       orderBy: 'position',
     );
-    final members = memberRows
-        .map(
-          (row) => StoredTeamSessionMember(
-            firefighterId: row['firefighterId'] as int,
-            name: row['firefighterNameSnapshot'] as String,
-            watchNumber: row['watchNumberSnapshot'] as int?,
-            isLeader: row['isLeader'] == 1,
-            position: row['position'] as int,
-            startPressure: row['startPressure'] as int,
-            arrivalPressure: row['arrivalPressure'] as int?,
-          ),
-        )
-        .toList();
+    final members = _membersFromRows(memberRows);
     final eventRows = await db.query(
       'team_session_events',
       where: 'sessionId = ?',
@@ -139,17 +179,50 @@ class TeamSessionRepository {
       whereArgs: [id],
       orderBy: 'checkedAt, id',
     );
+    final checkIds = checkRows.map((row) => row['id'] as int).toList();
+    final checkMemberRows = checkIds.isEmpty
+        ? const <Map<String, Object?>>[]
+        : await db.query(
+            'team_pressure_check_members',
+            where:
+                'pressureCheckId IN (${List.filled(checkIds.length, '?').join(',')})',
+            whereArgs: checkIds,
+            orderBy: 'pressureCheckId, id',
+          );
+    final valuesByCheck = <int, List<Map<String, Object?>>>{};
+    for (final row in checkMemberRows) {
+      valuesByCheck
+          .putIfAbsent(row['pressureCheckId'] as int, () => [])
+          .add(row);
+    }
     final checks = <PressureCheck>[];
+    final checkDetails = <PressureCheckDetails>[];
     for (final row in checkRows) {
-      final values = await db.query(
-        'team_pressure_check_members',
-        where: 'pressureCheckId = ?',
-        whereArgs: [row['id']],
-      );
+      final values = valuesByCheck[row['id']] ?? const [];
+      final checkedAt = DateTime.parse(row['checkedAt'] as String);
       checks.add(
         PressureCheck(
-          checkedAt: DateTime.parse(row['checkedAt'] as String),
+          checkedAt: checkedAt,
           pressuresByFirefighterId: {
+            for (final value in values)
+              value['firefighterId'] as int: value['actualPressure'] as int,
+          },
+        ),
+      );
+      checkDetails.add(
+        PressureCheckDetails(
+          checkedAt: checkedAt,
+          controllingFirefighterId: row['controllingFirefighterId'] as int,
+          remainingWorkMinutes: row['remainingWorkMinutes'] as int,
+          plannedExitTimeAfterCheck: DateTime.parse(
+            row['plannedExitTimeAfterCheck'] as String,
+          ),
+          emergencyMode: row['emergencyMode'] == 1,
+          estimatedPressuresByFirefighterId: {
+            for (final value in values)
+              value['firefighterId'] as int: value['estimatedPressure'] as int,
+          },
+          actualPressuresByFirefighterId: {
             for (final value in values)
               value['firefighterId'] as int: value['actualPressure'] as int,
           },
@@ -158,38 +231,76 @@ class TeamSessionRepository {
     }
     final emergencyRows = await db.query(
       'team_emergencies',
-      where: 'sessionId = ? AND resolvedAt IS NULL',
+      where: 'sessionId = ?',
       whereArgs: [id],
-      orderBy: 'startedAt DESC',
-      limit: 1,
+      orderBy: 'startedAt, id',
     );
-    TeamEmergency? emergency;
-    if (emergencyRows.isNotEmpty) {
-      final row = emergencyRows.single;
-      emergency = TeamEmergency(
-        reason: emergencyReasonFromStorage(row['reason'] as String),
-        startedAt: DateTime.parse(row['startedAt'] as String),
-        stageAtStart: activeTeamStageFromStorage(row['stageAtStart'] as String),
-        communicationAvailable: row['communicationAvailable'] == 1,
-        lastContactAt: row['lastContactAt'] == null
-            ? null
-            : DateTime.parse(row['lastContactAt'] as String),
-        note: row['note'] as String?,
-      );
-    }
-    final participants = members
-        .map(
-          (member) => Firefighter(
+    final emergencies = emergencyRows.map(_emergencyFromRow).toList();
+    final session = _restoreSession(
+      stored,
+      members,
+      checks: checks,
+      checkDetails: checkDetails,
+      events: events,
+      emergencies: emergencies,
+    );
+    return TeamSessionRecord(
+      id: id,
+      session: session,
+      watchNumber: members.isEmpty ? null : members.first.watchNumber,
+    );
+  }
+
+  List<StoredTeamSessionMember> _membersFromRows(
+    Iterable<Map<String, Object?>> rows,
+  ) => [
+    for (final row in rows)
+      StoredTeamSessionMember(
+        firefighterId: row['firefighterId'] as int,
+        name: row['firefighterNameSnapshot'] as String,
+        watchNumber: row['watchNumberSnapshot'] as int?,
+        isLeader: row['isLeader'] == 1,
+        position: row['position'] as int,
+        startPressure: row['startPressure'] as int,
+        arrivalPressure: row['arrivalPressure'] as int?,
+      ),
+  ];
+
+  TeamEmergency _emergencyFromRow(Map<String, Object?> row) => TeamEmergency(
+    reason: emergencyReasonFromStorage(row['reason'] as String),
+    startedAt: DateTime.parse(row['startedAt'] as String),
+    stageAtStart: activeTeamStageFromStorage(row['stageAtStart'] as String),
+    communicationAvailable: row['communicationAvailable'] == 1,
+    lastContactAt: row['lastContactAt'] == null
+        ? null
+        : DateTime.parse(row['lastContactAt'] as String),
+    note: row['note'] as String?,
+    resolvedAt: row['resolvedAt'] == null
+        ? null
+        : DateTime.parse(row['resolvedAt'] as String),
+  );
+
+  ActiveTeamSession _restoreSession(
+    StoredTeamSession stored,
+    List<StoredTeamSessionMember> members, {
+    required List<PressureCheck> checks,
+    required List<PressureCheckDetails> checkDetails,
+    required List<ActiveTeamEvent> events,
+    required List<TeamEmergency> emergencies,
+  }) {
+    final unresolved = emergencies.where((item) => item.resolvedAt == null);
+    return ActiveTeamSession.restored(
+      databaseId: stored.id,
+      unitName: stored.unitNameSnapshot,
+      apparatusName: stored.apparatusNameSnapshot,
+      participants: [
+        for (final member in members)
+          Firefighter(
             id: member.firefighterId,
             fullName: member.name,
             watch: member.watchNumber?.toString() ?? '',
           ),
-        )
-        .toList();
-    final session = ActiveTeamSession.restored(
-      unitName: stored.unitNameSnapshot,
-      apparatusName: stored.apparatusNameSnapshot,
-      participants: participants,
+      ],
       leaderId: stored.leaderFirefighterId,
       startPressuresByFirefighterId: {
         for (final member in members)
@@ -217,13 +328,10 @@ class TeamSessionRepository {
       workingTimeMinutes: stored.workingTimeMinutes,
       controllingFirefighterId: stored.controllingFirefighterId,
       pressureChecks: checks,
+      pressureCheckDetails: checkDetails,
       events: events,
-      activeEmergency: emergency,
-    );
-    return TeamSessionRecord(
-      id: id,
-      session: session,
-      watchNumber: members.isEmpty ? null : members.first.watchNumber,
+      emergencies: emergencies,
+      activeEmergency: unresolved.isEmpty ? null : unresolved.last,
     );
   }
 

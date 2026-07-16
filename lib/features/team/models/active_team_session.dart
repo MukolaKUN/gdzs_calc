@@ -78,6 +78,31 @@ class PressureCheck {
   }) : pressuresByFirefighterId = Map.unmodifiable(pressuresByFirefighterId);
 }
 
+class PressureCheckDetails {
+  final DateTime checkedAt;
+  final int controllingFirefighterId;
+  final int remainingWorkMinutes;
+  final DateTime plannedExitTimeAfterCheck;
+  final bool emergencyMode;
+  final Map<int, int> estimatedPressuresByFirefighterId;
+  final Map<int, int> actualPressuresByFirefighterId;
+
+  PressureCheckDetails({
+    required this.checkedAt,
+    required this.controllingFirefighterId,
+    required this.remainingWorkMinutes,
+    required this.plannedExitTimeAfterCheck,
+    required this.emergencyMode,
+    required Map<int, int> estimatedPressuresByFirefighterId,
+    required Map<int, int> actualPressuresByFirefighterId,
+  }) : estimatedPressuresByFirefighterId = Map.unmodifiable(
+         estimatedPressuresByFirefighterId,
+       ),
+       actualPressuresByFirefighterId = Map.unmodifiable(
+         actualPressuresByFirefighterId,
+       );
+}
+
 class ActiveTeamEvent {
   final DateTime time;
   final String title;
@@ -91,6 +116,7 @@ class ActiveTeamEvent {
 }
 
 class ActiveTeamSession {
+  final int? databaseId;
   final String unitName;
   final String apparatusName;
   final List<Firefighter> participants;
@@ -117,9 +143,12 @@ class ActiveTeamSession {
   int _currentRemainingWorkMinutes;
   final List<PressureCheck> _pressureChecks;
   final List<ActiveTeamEvent> _events;
+  final List<PressureCheckDetails> _pressureCheckDetails;
+  final List<TeamEmergency> _emergencies;
   TeamEmergency? _activeEmergency;
 
   ActiveTeamSession.advancing({
+    this.databaseId,
     required this.unitName,
     required this.apparatusName,
     required List<Firefighter> participants,
@@ -150,9 +179,12 @@ class ActiveTeamSession {
        _currentRemainingWorkMinutes = 0,
        _pressureChecks = [],
        _events = List.of(events),
+       _pressureCheckDetails = [],
+       _emergencies = [],
        _activeEmergency = null;
 
   ActiveTeamSession.restored({
+    this.databaseId,
     required this.unitName,
     required this.apparatusName,
     required List<Firefighter> participants,
@@ -177,6 +209,8 @@ class ActiveTeamSession {
     required int? controllingFirefighterId,
     required List<PressureCheck> pressureChecks,
     required List<ActiveTeamEvent> events,
+    List<PressureCheckDetails> pressureCheckDetails = const [],
+    List<TeamEmergency> emergencies = const [],
     TeamEmergency? activeEmergency,
   }) : participants = List.unmodifiable(participants),
        startPressuresByFirefighterId = Map.unmodifiable(
@@ -202,6 +236,8 @@ class ActiveTeamSession {
        _currentRemainingWorkMinutes = workingTimeMinutes ?? 0,
        _pressureChecks = List.of(pressureChecks),
        _events = List.of(events),
+       _pressureCheckDetails = List.of(pressureCheckDetails),
+       _emergencies = List.of(emergencies),
        _activeEmergency = activeEmergency;
 
   String get teamName => 'Ланка $unitName';
@@ -222,6 +258,10 @@ class ActiveTeamSession {
       Map.unmodifiable(_arrivalPressuresByFirefighterId);
   List<PressureCheck> get pressureChecks => List.unmodifiable(_pressureChecks);
   List<ActiveTeamEvent> get events => List.unmodifiable(_events);
+  List<PressureCheckDetails> get pressureCheckDetails =>
+      List.unmodifiable(_pressureCheckDetails);
+  List<TeamEmergency> get emergencies => List.unmodifiable(_emergencies);
+  bool get hadEmergency => _emergencies.isNotEmpty;
   TeamEmergency? get activeEmergency => _activeEmergency;
   bool get hasActiveEmergency => _activeEmergency != null;
 

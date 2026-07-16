@@ -1,10 +1,44 @@
 import 'package:gdzs_calc/shared/models/firefighter.dart';
 
 const int unspecifiedWatchValue = 0;
+const int allWatchesValue = -1;
 
-String watchValueLabel(int value) => value == unspecifiedWatchValue
-    ? 'Без визначеного караулу'
-    : '$value-й караул';
+String watchValueLabel(int value) => switch (value) {
+  allWatchesValue => 'Усі караули',
+  unspecifiedWatchValue => 'Без визначеного караулу',
+  _ => '$value-й караул',
+};
+
+List<Firefighter> filterFirefighters({
+  required Iterable<Firefighter> firefighters,
+  required int watch,
+  String query = '',
+}) {
+  final normalizedQuery = query.trim().toLowerCase();
+  final result = firefighters.where((firefighter) {
+    final matchesWatch =
+        watch == allWatchesValue ||
+        (firefighter.watchNumber ?? unspecifiedWatchValue) == watch;
+    final matchesQuery =
+        normalizedQuery.isEmpty ||
+        firefighter.fullName.toLowerCase().contains(normalizedQuery);
+    return matchesWatch && matchesQuery;
+  }).toList();
+  result.sort((first, second) {
+    final firstWatch = first.watchNumber ?? 5;
+    final secondWatch = second.watchNumber ?? 5;
+    final byWatch = firstWatch.compareTo(secondWatch);
+    return byWatch != 0 ? byWatch : first.fullName.compareTo(second.fullName);
+  });
+  return result;
+}
+
+String teamWatchLabel(Iterable<Firefighter> firefighters) {
+  final watches = firefighters.map((member) => member.watchNumber).toSet();
+  if (watches.length > 1) return 'Змішаний склад';
+  final watch = watches.firstOrNull;
+  return watch == null ? 'Без визначеного караулу' : '$watch-й караул';
+}
 
 Map<int, List<Firefighter>> groupFirefightersByWatch(
   Iterable<Firefighter> firefighters,

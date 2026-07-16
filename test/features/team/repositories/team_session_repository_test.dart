@@ -98,10 +98,11 @@ void main() {
       expect(advancing!.id, id);
       expect(advancing.session.stage, ActiveTeamStage.advancing);
       expect(advancing.session.participants.map((e) => e.watchNumber), [
+        1,
         2,
-        2,
-        2,
+        3,
       ]);
+      expect(advancing.watchLabel, 'Змішаний склад');
 
       final arrival = session.inclusionTime.add(const Duration(minutes: 5));
       const actualArrival = {1: 270, 2: 265, 3: 268};
@@ -213,8 +214,240 @@ void main() {
         throwsStateError,
       );
     });
+
+    group('completed history', () {
+      late int newestId;
+      late int oldestId;
+
+      setUp(() async {
+        oldestId = await _insertSession(
+          db,
+          stage: 'completed',
+          unitName: 'Старий snapshot підрозділу',
+          apparatusName: 'Старий snapshot апарата',
+          inclusion: DateTime(2026, 7, 10, 8),
+          completed: DateTime(2026, 7, 10, 9),
+        );
+        newestId = await _insertSession(
+          db,
+          stage: 'completed',
+          unitName: 'Snapshot ДПРЧ-9',
+          apparatusName: 'Snapshot Drager PSS',
+          inclusion: DateTime(2026, 7, 16, 10),
+          completed: DateTime(2026, 7, 16, 10, 42),
+        );
+        for (final stage in ['advancing', 'working', 'exiting']) {
+          await _insertSession(
+            db,
+            stage: stage,
+            unitName: stage,
+            apparatusName: 'active',
+            inclusion: DateTime(2026, 7, 16, 11),
+          );
+        }
+        await db.insert('team_session_members', {
+          'sessionId': newestId,
+          'firefighterId': 11,
+          'firefighterNameSnapshot': 'Snapshot Іваненко',
+          'watchNumberSnapshot': 3,
+          'isLeader': 1,
+          'position': 0,
+          'startPressure': 300,
+          'arrivalPressure': 270,
+        });
+        await db.insert('team_session_members', {
+          'sessionId': newestId,
+          'firefighterId': 12,
+          'firefighterNameSnapshot': 'Snapshot Петренко',
+          'watchNumberSnapshot': 1,
+          'isLeader': 0,
+          'position': 1,
+          'startPressure': 295,
+          'arrivalPressure': 268,
+        });
+        final laterCheck = await db.insert('team_pressure_checks', {
+          'sessionId': newestId,
+          'checkedAt': DateTime(2026, 7, 16, 10, 25).toIso8601String(),
+          'controllingFirefighterId': 11,
+          'remainingWorkMinutes': 12,
+          'plannedExitTimeAfterCheck': DateTime(
+            2026,
+            7,
+            16,
+            10,
+            37,
+          ).toIso8601String(),
+          'emergencyMode': 0,
+        });
+        final earlierCheck = await db.insert('team_pressure_checks', {
+          'sessionId': newestId,
+          'checkedAt': DateTime(2026, 7, 16, 10, 20).toIso8601String(),
+          'controllingFirefighterId': 12,
+          'remainingWorkMinutes': 17,
+          'plannedExitTimeAfterCheck': DateTime(
+            2026,
+            7,
+            16,
+            10,
+            37,
+          ).toIso8601String(),
+          'emergencyMode': 1,
+        });
+        await db.insert('team_pressure_check_members', {
+          'pressureCheckId': earlierCheck,
+          'firefighterId': 11,
+          'estimatedPressure': 251,
+          'actualPressure': 246,
+        });
+        await db.insert('team_pressure_check_members', {
+          'pressureCheckId': laterCheck,
+          'firefighterId': 11,
+          'estimatedPressure': 240,
+          'actualPressure': 243,
+        });
+        await db.insert('team_emergencies', {
+          'sessionId': newestId,
+          'reason': 'mayday',
+          'startedAt': DateTime(2026, 7, 16, 10, 22).toIso8601String(),
+          'stageAtStart': 'working',
+          'communicationAvailable': 1,
+          'lastContactAt': DateTime(2026, 7, 16, 10, 24).toIso8601String(),
+          'note': 'Snapshot note',
+          'resolvedAt': DateTime(2026, 7, 16, 10, 30).toIso8601String(),
+        });
+        for (final event in [
+          (DateTime(2026, 7, 16, 10, 30), 'Пізня подія'),
+          (DateTime(2026, 7, 16, 10, 5), 'Рання подія'),
+        ]) {
+          await db.insert('team_session_events', {
+            'sessionId': newestId,
+            'eventTime': event.$1.toIso8601String(),
+            'title': event.$2,
+            'description': '',
+          });
+        }
+      });
+
+      test('getCompletedSessions returns completed sessions only', () async {
+        final sessions = await repository.getCompletedSessions();
+        expect(sessions, hasLength(2));
+        expect(
+          sessions.every((item) => item.stage == ActiveTeamStage.completed),
+          isTrue,
+        );
+      });
+
+      test('advancing, working and exiting are excluded', () async {
+        final sessions = await repository.getCompletedSessions();
+        expect(
+          sessions.map((item) => item.unitName),
+          isNot(contains('advancing')),
+        );
+        expect(
+          sessions.map((item) => item.unitName),
+          isNot(contains('working')),
+        );
+        expect(
+          sessions.map((item) => item.unitName),
+          isNot(contains('exiting')),
+        );
+      });
+
+      test('completed sessions are sorted newest first', () async {
+        final sessions = await repository.getCompletedSessions();
+        expect(sessions.map((item) => item.databaseId), [newestId, oldestId]);
+      });
+
+      test('unit snapshot is restored without directory lookup', () async {
+        final session = (await repository.getById(newestId))!.session;
+        expect(session.unitName, 'Snapshot ДПРЧ-9');
+      });
+
+      test('apparatus snapshot is restored', () async {
+        final session = (await repository.getById(newestId))!.session;
+        expect(session.apparatusName, 'Snapshot Drager PSS');
+      });
+
+      test('member name and watch snapshots are restored', () async {
+        final session = (await repository.getById(newestId))!.session;
+        expect(session.participants.first.fullName, 'Snapshot Іваненко');
+        expect(session.participants.first.watchNumber, 3);
+      });
+
+      test('pressure checks are restored chronologically', () async {
+        final session = (await repository.getById(newestId))!.session;
+        expect(
+          session.pressureCheckDetails.map((item) => item.checkedAt.minute),
+          [20, 25],
+        );
+      });
+
+      test('estimated and actual pressures remain distinct', () async {
+        final check = (await repository.getById(
+          newestId,
+        ))!.session.pressureCheckDetails.first;
+        expect(check.estimatedPressuresByFirefighterId[11], 251);
+        expect(check.actualPressuresByFirefighterId[11], 246);
+      });
+
+      test('resolved emergencies are restored with resolvedAt', () async {
+        final emergency = (await repository.getById(
+          newestId,
+        ))!.session.emergencies.single;
+        expect(emergency.reason, EmergencyReason.mayday);
+        expect(emergency.resolvedAt, DateTime(2026, 7, 16, 10, 30));
+      });
+
+      test('events are restored chronologically', () async {
+        final events = (await repository.getById(newestId))!.session.events;
+        expect(events.map((item) => item.title), [
+          'Рання подія',
+          'Пізня подія',
+        ]);
+      });
+    });
   });
 }
+
+Future<int> _insertSession(
+  Database db, {
+  required String stage,
+  required String unitName,
+  required String apparatusName,
+  required DateTime inclusion,
+  DateTime? completed,
+}) => db.insert('team_sessions', {
+  'unitId': 999,
+  'unitNameSnapshot': unitName,
+  'apparatusId': 999,
+  'apparatusNameSnapshot': apparatusName,
+  'apparatusWorkingPressure': 300,
+  'apparatusCylinderVolume': 6.8,
+  'apparatusCylindersCount': 1,
+  'apparatusReservePressure': 50,
+  'leaderFirefighterId': 11,
+  'workLoad': 'medium',
+  'stage': stage,
+  'inclusionTime': inclusion.toIso8601String(),
+  'arrivalTime': inclusion.add(const Duration(minutes: 5)).toIso8601String(),
+  'initialPlannedExitTime': inclusion
+      .add(const Duration(minutes: 35))
+      .toIso8601String(),
+  'currentPlannedExitTime': inclusion
+      .add(const Duration(minutes: 37))
+      .toIso8601String(),
+  'travelPressure': 30,
+  'exitPressure': 80,
+  'workingPressure': 190,
+  'workingTimeMinutes': 30,
+  'controllingFirefighterId': 11,
+  'exitStartedAt': completed
+      ?.subtract(const Duration(minutes: 10))
+      .toIso8601String(),
+  'completedAt': completed?.toIso8601String(),
+  'createdAt': inclusion.toIso8601String(),
+  'updatedAt': (completed ?? inclusion).toIso8601String(),
+});
 
 const _apparatus = Apparatus(
   id: 1,
@@ -231,9 +464,9 @@ ActiveTeamSession _advancing() {
     unitName: 'ДПРЧ-1',
     apparatusName: 'Drager',
     participants: const [
-      Firefighter(id: 1, fullName: 'А', watch: '2'),
+      Firefighter(id: 1, fullName: 'А', watch: '1'),
       Firefighter(id: 2, fullName: 'Б', watch: '2'),
-      Firefighter(id: 3, fullName: 'В', watch: '2'),
+      Firefighter(id: 3, fullName: 'В', watch: '3'),
     ],
     leaderId: 1,
     startPressuresByFirefighterId: const {1: 300, 2: 295, 3: 298},

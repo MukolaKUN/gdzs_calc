@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:gdzs_calc/features/history/history_page.dart';
 import 'package:gdzs_calc/features/settings/settings_page.dart';
 import 'package:gdzs_calc/features/team/active_team_page.dart';
 import 'package:gdzs_calc/features/team/models/active_team_session.dart';
@@ -124,7 +125,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                       Text('Етап: ${session.stage.label}'),
                       Text('Підрозділ: ${session.unitName}'),
-                      Text('Караул: ${active!.watchNumber ?? 'не визначено'}'),
+                      Text('Караул: ${active!.watchLabel}'),
                       Text('Увімкнення: ${_clock(session.inclusionTime)}'),
                       Text('Мінімальний підтверджений тиск: $minimum бар'),
                       Text(
@@ -165,11 +166,17 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
             const SizedBox(height: 12),
-            const Card(
+            Card(
               child: ListTile(
-                leading: Icon(Icons.history),
-                title: Text('Історія'),
-                trailing: Icon(Icons.chevron_right),
+                leading: const Icon(Icons.history),
+                title: const Text('Історія'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => HistoryPage(repository: _repository),
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 12),
