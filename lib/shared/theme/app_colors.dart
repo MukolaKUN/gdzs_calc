@@ -3,19 +3,23 @@ import 'package:flutter/material.dart';
 class AppColors {
   AppColors._();
 
-  static const primary = Colors.red;
+  static const primary = Color(0xFF2196F3);
 
-  static const success = Colors.green;
+  static const secondary = Color(0xFF4FC3F7);
 
-  static const warning = Colors.orange;
+  static const success = Color(0xFF4CAF50);
 
-  static const error = Colors.red;
+  static const warning = Color(0xFFFF9800);
 
-  static const background = Color(0xfff5f5f5);
+  static const error = Color(0xFFEF5350);
 
-  static const card = Colors.white;
+  static const background = Color(0xFF071521);
 
-  static const text = Colors.black87;
+  static const card = Color(0xFF10283A);
 
-  static const subtitle = Colors.grey;
+  static const elevatedSurface = Color(0xFF16344A);
+
+  static const text = Color(0xFFF5F9FC);
+
+  static const subtitle = Color(0xFF9FB7C9);
 }

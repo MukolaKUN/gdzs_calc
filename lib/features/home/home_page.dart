@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../settings/settings_page.dart';
-import '../team/new_team_page.dart';
+import 'package:gdzs_calc/features/settings/settings_page.dart';
+import 'package:gdzs_calc/features/team/new_team_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -13,71 +13,53 @@ class HomePage extends StatelessWidget {
         centerTitle: true,
       ),
       body: SafeArea(
-        child: Padding(
+        child: ListView(
           padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Spacer(),
-
-              SizedBox(
-                height: 70,
-                child: FilledButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const NewTeamPage()),
-                    );
-                  },
-                  icon: const Icon(Icons.groups),
-                  label: const Text(
-                    'СТВОРИТИ ЛАНКУ',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  ),
+          children: [
+            const SizedBox(height: 20),
+            SizedBox(
+              height: 70,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const NewTeamPage()),
+                ),
+                icon: const Icon(Icons.groups),
+                label: const Text(
+                  'СТВОРИТИ ЛАНКУ',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
               ),
-
-              const Spacer(),
-
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.menu_book),
-                  title: const Text('Довідник'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {},
+            ),
+            const SizedBox(height: 28),
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.menu_book),
+                title: Text('Довідник'),
+                trailing: Icon(Icons.chevron_right),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.history),
+                title: Text('Історія'),
+                trailing: Icon(Icons.chevron_right),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.settings),
+                title: const Text('Налаштування'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SettingsPage()),
                 ),
               ),
-
-              const SizedBox(height: 12),
-
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.history),
-                  title: const Text('Історія'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {},
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.settings),
-                  title: const Text('Налаштування'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const SettingsPage()),
-                    );
-                  },
-                ),
-              ),
-
-              const SizedBox(height: 20),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

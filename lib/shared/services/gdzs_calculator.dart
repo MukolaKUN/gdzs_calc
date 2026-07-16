@@ -48,6 +48,45 @@ class CompressedAirCalculationResult {
 class GdzsCalculator {
   GdzsCalculator._();
 
+  static int calculateEstimatedPressureAfterElapsed({
+    required int basePressure,
+    required Duration elapsed,
+    required double cylinderVolume,
+    required int cylindersCount,
+    required WorkLoad workLoad,
+  }) {
+    final elapsedSeconds = elapsed.inSeconds < 0 ? 0 : elapsed.inSeconds;
+    final elapsedMinutes = elapsedSeconds / 60.0;
+    final pressureDrop =
+        (elapsedMinutes *
+                workLoad.airConsumption /
+                (cylindersCount * cylinderVolume))
+            .ceil();
+    final estimatedPressure = basePressure - pressureDrop;
+
+    return estimatedPressure.clamp(0, basePressure).toInt();
+  }
+
+  static int calculateRemainingWorkTimeMinutes({
+    required int currentPressure,
+    required int exitPressure,
+    required double cylinderVolume,
+    required int cylindersCount,
+    required WorkLoad workLoad,
+  }) {
+    if (currentPressure <= exitPressure) return 0;
+
+    final availablePressure = currentPressure - exitPressure;
+    final remainingMinutes =
+        cylindersCount *
+        cylinderVolume *
+        availablePressure /
+        workLoad.airConsumption;
+    final roundedMinutes = remainingMinutes.floor();
+
+    return roundedMinutes < 0 ? 0 : roundedMinutes;
+  }
+
   /// Розраховує прогнозний тиск після прямування до місця роботи.
   ///
   /// Це орієнтовне значення для контролю постовим. Остаточний розрахунок

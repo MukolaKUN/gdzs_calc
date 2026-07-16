@@ -4,188 +4,162 @@ import 'package:gdzs_calc/shared/models/firefighter.dart';
 import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
 
 void main() {
-  group('ActiveTeamSession', () {
-    test('creates an active in-memory session with all calculation data', () {
-      final session = _createSession();
-
-      expect(session.teamName, 'Ланка 1 ДПРЧ');
-      expect(session.unitName, '1 ДПРЧ');
-      expect(session.apparatusName, 'Drager PSS 4000');
-      expect(session.participants, hasLength(3));
-      expect(session.leaderId, 1);
-      expect(session.startPressuresByFirefighterId, {1: 300, 2: 295, 3: 290});
-      expect(session.arrivalPressuresByFirefighterId, {1: 265, 2: 260, 3: 250});
-      expect(session.inclusionTime, DateTime(2026, 7, 12, 10));
-      expect(session.arrivalTime, DateTime(2026, 7, 12, 10, 6));
-      expect(session.plannedExitTime, DateTime(2026, 7, 12, 10, 30));
-      expect(session.exitPressure, 90);
-      expect(session.workingTimeMinutes, 24);
-      expect(session.workLoad, WorkLoad.medium);
-      expect(session.cylinderVolume, 6);
-      expect(session.cylindersCount, 1);
-      expect(session.status, ActiveTeamStatus.active);
-      expect(session.pressureChecks, isEmpty);
-      expect(session.events, isEmpty);
-    });
-
+  group('ActiveTeamSession stages', () {
     test(
-      'uses arrival pressures until a newer pressure check is available',
+      'starts advancing with real inclusion time and unknown arrival data',
       () {
-        final session = _createSession();
+        final inclusion = DateTime(2026, 7, 16, 10);
+        final session = _advancing(inclusion);
 
-        expect(session.latestPressureCheck, isNull);
-        expect(session.latestPressureCheckedAt, session.arrivalTime);
-        expect(session.latestPressuresByFirefighterId, {
-          1: 265,
-          2: 260,
-          3: 250,
-        });
-        expect(session.latestPressureForFirefighter(2), 260);
-
-        final newerCheck = PressureCheck(
-          checkedAt: DateTime(2026, 7, 12, 10, 20),
-          pressuresByFirefighterId: const {1: 210, 2: 205, 3: 200},
-        );
-        session.addPressureCheck(newerCheck);
-        session.addPressureCheck(
-          PressureCheck(
-            checkedAt: DateTime(2026, 7, 12, 10, 12),
-            pressuresByFirefighterId: const {1: 240, 2: 235, 3: 230},
-          ),
-        );
-
-        expect(session.latestPressureCheck, same(newerCheck));
-        expect(session.latestPressureCheckedAt, newerCheck.checkedAt);
-        expect(session.latestPressuresByFirefighterId, {
-          1: 210,
-          2: 205,
-          3: 200,
-        });
-        expect(session.latestPressureForFirefighter(3), 200);
+        expect(session.stage, ActiveTeamStage.advancing);
+        expect(session.inclusionTime, inclusion);
+        expect(session.arrivalTime, isNull);
+        expect(session.initialPlannedExitTime, isNull);
+        expect(session.currentPlannedExitTime, isNull);
       },
     );
 
-    test('calculates the minimum from latest confirmed pressures', () {
-      final session = _createSession();
+    test('advancing duration is measured from inclusion time', () {
+      final inclusion = DateTime(2026, 7, 16, 10);
+      final session = _advancing(inclusion);
 
-      expect(session.minimumActualPressure, 250);
-
-      session.addPressureCheck(
-        PressureCheck(
-          checkedAt: DateTime(2026, 7, 12, 10, 15),
-          pressuresByFirefighterId: const {1: 220, 2: 215, 3: 205},
-        ),
+      expect(
+        session.advancingDurationAt(inclusion.add(const Duration(seconds: 95))),
+        const Duration(seconds: 95),
       );
-
-      expect(session.minimumActualPressure, 205);
     });
 
-    test('moves active to exiting to completed and records timed events', () {
-      final session = _createSession();
-      final exitStartedAt = DateTime(2026, 7, 12, 10, 28);
-      final completedAt = DateTime(2026, 7, 12, 10, 36);
+    test('advancing pressure estimate decreases with elapsed time', () {
+      final inclusion = DateTime(2026, 7, 16, 10);
+      final session = _advancing(inclusion);
 
-      session.startExiting(at: exitStartedAt);
+      final initial = session.estimatedAdvancingPressuresAt(inclusion)[1]!;
+      final later = session.estimatedAdvancingPressuresAt(
+        inclusion.add(const Duration(minutes: 5)),
+      )[1]!;
+      expect(later, lessThan(initial));
+    });
 
-      expect(session.status, ActiveTeamStatus.exiting);
-      expect(session.exitStartedAt, exitStartedAt);
-      expect(session.events, hasLength(1));
-      expect(session.events.single.time, exitStartedAt);
-      expect(session.events.single.title, 'Ланка розпочала вихід');
+    test('confirmArrival stores actual values and calculation', () {
+      final inclusion = DateTime(2026, 7, 16, 10);
+      final arrival = inclusion.add(const Duration(minutes: 5));
+      final session = _advancing(inclusion);
+      final calculation = _calculation(inclusion, arrival);
+
+      session.confirmArrival(
+        arrivalTime: arrival,
+        arrivalPressures: const {1: 270, 2: 265},
+        calculation: calculation,
+      );
+
+      expect(session.stage, ActiveTeamStage.working);
+      expect(session.arrivalTime, arrival);
+      expect(session.arrivalPressuresByFirefighterId, {1: 270, 2: 265});
+      expect(session.exitPressure, calculation.exitPressure);
+      expect(session.workingTimeMinutes, calculation.workingTimeMinutes);
+      expect(session.currentPlannedExitTime, calculation.exitTime);
+      expect(session.controllingFirefighterId, 2);
+    });
+
+    test('working transitions to exiting and exiting to completed', () {
+      final session = _working();
+      final exitAt = DateTime(2026, 7, 16, 10, 20);
+      final completedAt = DateTime(2026, 7, 16, 10, 25);
+
+      session.startExit(at: exitAt);
+      expect(session.stage, ActiveTeamStage.exiting);
+      expect(session.exitStartedAt, exitAt);
 
       session.complete(at: completedAt);
-
-      expect(session.status, ActiveTeamStatus.completed);
+      expect(session.stage, ActiveTeamStage.completed);
       expect(session.completedAt, completedAt);
-      expect(session.events, hasLength(2));
-      expect(session.events.last.time, completedAt);
-      expect(session.events.last.title, 'Ланка вийшла на свіже повітря');
-      expect(session.totalDuration, const Duration(minutes: 36));
+      expect(session.totalDuration, const Duration(minutes: 25));
     });
 
-    test('rejects status transitions that skip or repeat a state', () {
-      final session = _createSession();
-
+    test('advancing cannot jump to exiting or completed', () {
+      final session = _advancing(DateTime(2026, 7, 16, 10));
       expect(
-        () => session.complete(at: DateTime(2026, 7, 12, 10, 30)),
+        () => session.startExit(at: DateTime(2026, 7, 16, 10, 1)),
         throwsStateError,
       );
-
-      session.startExiting(at: DateTime(2026, 7, 12, 10, 30));
-
       expect(
-        () => session.startExiting(at: DateTime(2026, 7, 12, 10, 31)),
+        () => session.complete(at: DateTime(2026, 7, 16, 10, 2)),
         throwsStateError,
       );
     });
 
-    test('remaining duration never becomes negative', () {
-      final session = _createSession();
-
-      expect(
-        session.remainingUntilPlannedExit(DateTime(2026, 7, 12, 10, 25)),
-        const Duration(minutes: 5),
-      );
-      expect(
-        session.remainingUntilPlannedExit(DateTime(2026, 7, 12, 10, 30)),
-        Duration.zero,
-      );
-      expect(
-        session.remainingUntilPlannedExit(DateTime(2026, 7, 12, 10, 40)),
-        Duration.zero,
-      );
-    });
-
-    test('distinguishes approaching and reached exit pressure', () {
-      final session = _createSession();
-
-      expect(session.hasExitPressureWarning, isFalse);
-      expect(session.hasApproachingExitPressureWarning, isFalse);
+    test('pressure check uses last actual pressure and updates countdown', () {
+      final session = _working();
+      final checkedAt = DateTime(2026, 7, 16, 10, 10);
+      final before = session.currentPlannedExitTime;
 
       session.addPressureCheck(
         PressureCheck(
-          checkedAt: DateTime(2026, 7, 12, 10, 20),
-          pressuresByFirefighterId: const {1: 105, 2: 100, 3: 95},
+          checkedAt: checkedAt,
+          pressuresByFirefighterId: const {1: 210, 2: 200},
         ),
       );
 
-      expect(session.minimumActualPressure, 95);
-      expect(session.hasExitPressureWarning, isFalse);
-      expect(session.hasApproachingExitPressureWarning, isTrue);
-
-      session.addPressureCheck(
-        PressureCheck(
-          checkedAt: DateTime(2026, 7, 12, 10, 25),
-          pressuresByFirefighterId: const {1: 100, 2: 95, 3: 90},
-        ),
+      expect(session.latestPressuresByFirefighterId, {1: 210, 2: 200});
+      expect(session.controllingFirefighterId, 2);
+      expect(session.currentPlannedExitTime, isNot(before));
+      expect(
+        session.estimatedPressuresAt(
+          checkedAt.add(const Duration(minutes: 2)),
+        )[2],
+        lessThan(200),
       );
-
-      expect(session.minimumActualPressure, 90);
-      expect(session.hasExitPressureWarning, isTrue);
-      expect(session.hasApproachingExitPressureWarning, isFalse);
     });
   });
 }
 
-ActiveTeamSession _createSession() {
-  return ActiveTeamSession(
-    unitName: '1 ДПРЧ',
-    apparatusName: 'Drager PSS 4000',
-    participants: const [
-      Firefighter(id: 1, fullName: 'Андрій Бойко', watch: '1'),
-      Firefighter(id: 2, fullName: 'Олег Коваль', watch: '1'),
-      Firefighter(id: 3, fullName: 'Максим Лисенко', watch: '1'),
-    ],
+const _members = [
+  Firefighter(id: 1, fullName: 'Перший', watch: '1'),
+  Firefighter(id: 2, fullName: 'Другий', watch: '1'),
+];
+
+ActiveTeamSession _advancing(DateTime inclusion) {
+  return ActiveTeamSession.advancing(
+    unitName: 'ДПРЧ-1',
+    apparatusName: 'Drager',
+    participants: _members,
     leaderId: 1,
-    startPressuresByFirefighterId: const {1: 300, 2: 295, 3: 290},
-    arrivalPressuresByFirefighterId: const {1: 265, 2: 260, 3: 250},
-    inclusionTime: DateTime(2026, 7, 12, 10),
-    arrivalTime: DateTime(2026, 7, 12, 10, 6),
-    plannedExitTime: DateTime(2026, 7, 12, 10, 30),
-    exitPressure: 90,
-    workingTimeMinutes: 24,
+    startPressuresByFirefighterId: const {1: 300, 2: 295},
+    inclusionTime: inclusion,
     workLoad: WorkLoad.medium,
-    cylinderVolume: 6,
+    cylinderVolume: 6.8,
     cylindersCount: 1,
+    reservePressure: 50,
+    events: [
+      ActiveTeamEvent(time: inclusion, title: 'Ланка увімкнулася в ЗІЗОД'),
+    ],
   );
+}
+
+CompressedAirCalculationResult _calculation(
+  DateTime inclusion,
+  DateTime arrival,
+) {
+  return GdzsCalculator.calculateCompressedAir(
+    startPressures: const [300, 295],
+    arrivalPressures: const [270, 265],
+    inclusionTime: inclusion,
+    arrivalTime: arrival,
+    cylinderVolume: 6.8,
+    cylindersCount: 1,
+    reservePressure: 50,
+    workLoad: WorkLoad.medium,
+  );
+}
+
+ActiveTeamSession _working() {
+  final inclusion = DateTime(2026, 7, 16, 10);
+  final arrival = inclusion.add(const Duration(minutes: 5));
+  final session = _advancing(inclusion);
+  session.confirmArrival(
+    arrivalTime: arrival,
+    arrivalPressures: const {1: 270, 2: 265},
+    calculation: _calculation(inclusion, arrival),
+  );
+  return session;
 }

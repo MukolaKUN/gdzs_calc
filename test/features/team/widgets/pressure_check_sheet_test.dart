@@ -1,75 +1,68 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gdzs_calc/features/team/models/active_team_session.dart';
 import 'package:gdzs_calc/features/team/widgets/pressure_check_sheet.dart';
 import 'package:gdzs_calc/shared/models/firefighter.dart';
-import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
 
 void main() {
-  testWidgets('returns pressures and can be reopened and dismissed', (
-    tester,
-  ) async {
-    final now = DateTime(2026, 7, 16, 12);
-    final session = ActiveTeamSession(
-      unitName: '1 ДПРЧ',
-      apparatusName: 'Drager PSS 4000',
-      participants: const [
-        Firefighter(id: 1, fullName: 'Андрій Бойко', watch: '1'),
-      ],
-      leaderId: 1,
-      startPressuresByFirefighterId: const {1: 300},
-      arrivalPressuresByFirefighterId: const {1: 280},
-      inclusionTime: now.subtract(const Duration(minutes: 10)),
-      arrivalTime: now,
-      plannedExitTime: now.add(const Duration(minutes: 20)),
-      exitPressure: 90,
-      workingTimeMinutes: 20,
-      workLoad: WorkLoad.medium,
-      cylinderVolume: 6,
-      cylindersCount: 1,
-    );
-    Map<int, int>? result;
+  const participants = [
+    Firefighter(id: 1, fullName: 'Перший', watch: '1'),
+    Firefighter(id: 2, fullName: 'Другий', watch: '1'),
+  ];
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => FilledButton(
-              onPressed: () async {
-                result = await showModalBottomSheet<Map<int, int>>(
-                  context: context,
-                  isScrollControlled: true,
-                  useSafeArea: true,
-                  builder: (_) =>
-                      PressureCheckSheet(session: session, openedAt: now),
-                );
-              },
-              child: const Text('Відкрити'),
-            ),
+  Widget host(ValueChanged<Map<int, int>?> onResult) {
+    return MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: FilledButton(
+            onPressed: () async {
+              final result = await showModalBottomSheet<Map<int, int>>(
+                context: context,
+                isScrollControlled: true,
+                useSafeArea: true,
+                builder: (_) => const PressureCheckSheet(
+                  participants: participants,
+                  leaderId: 1,
+                  maximumPressuresByFirefighterId: {1: 300, 2: 295},
+                  estimatedPressuresByFirefighterId: {1: 280, 2: 275},
+                ),
+              );
+              onResult(result);
+            },
+            child: const Text('Відкрити'),
           ),
         ),
       ),
     );
+  }
+
+  testWidgets('returns edited map and can be reopened then closed', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final results = <Map<int, int>?>[];
+    await tester.pumpWidget(host(results.add));
 
     await tester.tap(find.text('Відкрити'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField), '250');
+    final fields = find.byType(TextFormField);
+    expect(fields, findsNWidgets(2));
+    await tester.enterText(fields.first, '270');
+    await tester.enterText(fields.last, '260');
+    await tester.ensureVisible(find.text('Підтвердити замір'));
+    await tester.pump();
     await tester.tap(find.text('Підтвердити замір'));
     await tester.pumpAndSettle();
-
-    expect(result, {1: 250});
+    expect(results.single, {1: 270, 2: 260});
     expect(tester.takeException(), isNull);
 
-    result = null;
     await tester.tap(find.text('Відкрити'));
     await tester.pumpAndSettle();
-    expect(find.byType(PressureCheckSheet), findsOneWidget);
-
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
-
-    expect(result, isNull);
-    expect(find.byType(PressureCheckSheet), findsNothing);
+    expect(results.last, isNull);
     expect(tester.takeException(), isNull);
   });
 }

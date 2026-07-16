@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:gdzs_calc/features/team/models/active_team_session.dart';
 import 'package:gdzs_calc/features/team/widgets/pressure_input.dart';
-import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
+import 'package:gdzs_calc/shared/models/firefighter.dart';
 
 class PressureCheckSheet extends StatefulWidget {
-  final ActiveTeamSession session;
-  final DateTime openedAt;
+  final List<Firefighter> participants;
+  final int leaderId;
+  final Map<int, int> maximumPressuresByFirefighterId;
+  final Map<int, int> estimatedPressuresByFirefighterId;
 
   const PressureCheckSheet({
     super.key,
-    required this.session,
-    required this.openedAt,
+    required this.participants,
+    required this.leaderId,
+    required this.maximumPressuresByFirefighterId,
+    required this.estimatedPressuresByFirefighterId,
   });
 
   @override
@@ -23,36 +26,18 @@ class _PressureCheckSheetState extends State<PressureCheckSheet> {
   bool _isSubmitting = false;
 
   final Map<int, int> _maximumPressures = {};
-  late final bool _isFirstCheck;
 
   @override
   void initState() {
     super.initState();
 
-    final session = widget.session;
-    final latestCheck = session.latestPressureCheck;
-    _isFirstCheck = latestCheck == null;
-    final referenceTime = latestCheck?.checkedAt ?? session.arrivalTime;
-    final referencePressures = session.latestPressuresByFirefighterId;
-    final elapsedMinutes = widget.openedAt
-        .difference(referenceTime)
-        .inMinutes
-        .clamp(0, 1440)
-        .toInt();
-
-    for (final participant in session.participants) {
+    for (final participant in widget.participants) {
       final id = participant.id;
       if (id == null) continue;
 
-      final referencePressure = referencePressures[id] ?? 0;
+      final referencePressure = widget.maximumPressuresByFirefighterId[id] ?? 0;
       final estimatedPressure =
-          GdzsCalculator.calculateEstimatedArrivalPressure(
-            startPressure: referencePressure,
-            travelTimeMinutes: elapsedMinutes,
-            cylinderVolume: session.cylinderVolume,
-            cylindersCount: session.cylindersCount,
-            workLoad: session.workLoad,
-          );
+          widget.estimatedPressuresByFirefighterId[id] ?? referencePressure;
       _maximumPressures[id] = referencePressure;
       _controllers[id] = TextEditingController(
         text: estimatedPressure.toString(),
@@ -81,6 +66,18 @@ class _PressureCheckSheetState extends State<PressureCheckSheet> {
     Navigator.of(context).pop(result);
   }
 
+  String _statusText(int id, int estimatedPressure) {
+    final actualPressure = int.tryParse(_controllers[id]!.text.trim());
+    if (actualPressure == null) return '';
+
+    final deviation = actualPressure - estimatedPressure;
+    if (deviation == 0) return 'Збігається з розрахунковим';
+    if (deviation < 0) {
+      return 'Витрата вища за розрахункову: $deviation бар';
+    }
+    return 'Запас відносно розрахункового: +$deviation бар';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -98,27 +95,30 @@ class _PressureCheckSheetState extends State<PressureCheckSheet> {
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(height: 8),
-              Text(
-                _isFirstCheck
-                    ? 'Прогноз від тиску після прибуття'
-                    : 'Прогноз від останнього контрольного заміру',
-              ),
+              const Text('Звірте прогноз із фактичною доповіддю'),
               const SizedBox(height: 12),
-              ...widget.session.participants.map((participant) {
+              ...widget.participants.map((participant) {
                 final id = participant.id;
                 final controller = id == null ? null : _controllers[id];
                 if (id == null || controller == null) {
                   return const SizedBox.shrink();
                 }
+                final estimatedPressure =
+                    widget.estimatedPressuresByFirefighterId[id] ??
+                    _maximumPressures[id]!;
 
                 return PressureInput(
                   key: ValueKey('pressure-check-$id'),
                   firefighterName: participant.fullName,
-                  isLeader: id == widget.session.leaderId,
+                  isLeader: id == widget.leaderId,
                   controller: controller,
                   minValue: 0,
                   maxValue: _maximumPressures[id]!,
-                  helperText: 'Звірте прогноз із фактичною доповіддю',
+                  helperText: 'Розрахунковий тиск: $estimatedPressure бар',
+                  statusText: _statusText(id, estimatedPressure),
+                  onEdited: () {
+                    setState(() {});
+                  },
                 );
               }),
               const SizedBox(height: 12),

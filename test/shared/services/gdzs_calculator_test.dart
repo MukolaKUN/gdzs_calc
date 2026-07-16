@@ -3,6 +3,54 @@ import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
 
 void main() {
   group('GdzsCalculator — стиснене повітря', () {
+    test('прогнозує тиск за фактично минулим часом', () {
+      int calculate(int basePressure, Duration elapsed) {
+        return GdzsCalculator.calculateEstimatedPressureAfterElapsed(
+          basePressure: basePressure,
+          elapsed: elapsed,
+          cylinderVolume: 6,
+          cylindersCount: 1,
+          workLoad: WorkLoad.medium,
+        );
+      }
+
+      expect(calculate(250, const Duration(minutes: 10)), 183);
+      expect(calculate(250, Duration.zero), 250);
+      expect(calculate(180, const Duration(minutes: 5)), 146);
+      expect(calculate(100, const Duration(hours: 1)), 0);
+    });
+
+    test('перераховує залишок роботи за поточним тиском', () {
+      int calculate(int currentPressure) {
+        return GdzsCalculator.calculateRemainingWorkTimeMinutes(
+          currentPressure: currentPressure,
+          exitPressure: 90,
+          cylinderVolume: 6,
+          cylindersCount: 1,
+          workLoad: WorkLoad.medium,
+        );
+      }
+
+      expect(calculate(250), 24);
+      expect(calculate(230), 21);
+      expect(calculate(200), 16);
+      expect(calculate(90), 0);
+      expect(calculate(80), 0);
+    });
+
+    test('перераховує залишок роботи для важкого навантаження', () {
+      expect(
+        GdzsCalculator.calculateRemainingWorkTimeMinutes(
+          currentPressure: 230,
+          exitPressure: 90,
+          cylinderVolume: 6,
+          cylindersCount: 1,
+          workLoad: WorkLoad.heavy,
+        ),
+        10,
+      );
+    });
+
     test('правильно рахує приклад із методичних рекомендацій №680', () {
       final result = GdzsCalculator.calculateCompressedAir(
         startPressures: const [300, 295, 290],

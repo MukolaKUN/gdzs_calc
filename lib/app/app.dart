@@ -11,7 +11,7 @@ class GdzsApp extends StatelessWidget {
       title: 'ГДЗС Калькулятор',
       debugShowCheckedModeBanner: false,
 
-      theme: AppTheme.lightTheme,
+      theme: AppTheme.darkTheme,
 
       home: const HomePage(),
     );
