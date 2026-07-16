@@ -5,6 +5,15 @@ class Firefighter {
 
   const Firefighter({this.id, required this.fullName, required this.watch});
 
+  int? get watchNumber {
+    final value = int.tryParse(watch.trim());
+    return value != null && value >= 1 && value <= 4 ? value : null;
+  }
+
+  String get watchLabel => watchNumber == null
+      ? 'Без визначеного караулу'
+      : '${watchNumber!}-й караул';
+
   Map<String, dynamic> toMap() {
     return {'id': id, 'fullName': fullName, 'watch': watch};
   }

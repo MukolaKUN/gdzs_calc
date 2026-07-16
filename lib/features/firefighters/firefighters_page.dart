@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:gdzs_calc/features/firefighters/add_firefighter_page.dart';
 import 'package:gdzs_calc/shared/models/firefighter.dart';
 import 'package:gdzs_calc/shared/repositories/firefighter_repository.dart';
+import 'package:gdzs_calc/shared/utils/firefighter_watch_groups.dart';
 
 class FirefightersPage extends StatefulWidget {
   const FirefightersPage({super.key});
@@ -152,41 +153,54 @@ class _FirefightersPageState extends State<FirefightersPage> {
             )
           : RefreshIndicator(
               onRefresh: _loadFirefighters,
-              child: ListView.builder(
-                itemCount: _firefighters.length,
-                itemBuilder: (context, index) {
-                  final firefighter = _firefighters[index];
-                  return Card(
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    child: ListTile(
-                      leading: const CircleAvatar(child: Icon(Icons.person)),
-                      title: Text(firefighter.fullName),
-                      subtitle: Text(firefighter.watch),
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (value) {
-                          if (value == 'edit') {
-                            _openEditor(firefighter);
-                          } else if (value == 'delete') {
-                            _delete(firefighter);
-                          }
-                        },
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(
-                            value: 'edit',
-                            child: Text('Редагувати'),
-                          ),
-                          PopupMenuItem(
-                            value: 'delete',
-                            child: Text('Видалити'),
-                          ),
-                        ],
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: [
+                  for (final group in groupFirefightersByWatch(
+                    _firefighters,
+                  ).entries) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+                      child: Text(
+                        watchValueLabel(group.key),
+                        style: Theme.of(context).textTheme.titleLarge,
                       ),
                     ),
-                  );
-                },
+                    for (final firefighter in group.value)
+                      Card(
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                        child: ListTile(
+                          leading: const CircleAvatar(
+                            child: Icon(Icons.person),
+                          ),
+                          title: Text(firefighter.fullName),
+                          subtitle: Text(firefighter.watchLabel),
+                          trailing: PopupMenuButton<String>(
+                            onSelected: (value) {
+                              if (value == 'edit') {
+                                _openEditor(firefighter);
+                              } else if (value == 'delete') {
+                                _delete(firefighter);
+                              }
+                            },
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(
+                                value: 'edit',
+                                child: Text('Редагувати'),
+                              ),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Text('Видалити'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ],
               ),
             ),
     );

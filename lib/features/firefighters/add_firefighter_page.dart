@@ -15,7 +15,7 @@ class _AddFirefighterPageState extends State<AddFirefighterPage> {
   final _formKey = GlobalKey<FormState>();
   final _repository = FirefighterRepository();
   late final TextEditingController _fullNameController;
-  late final TextEditingController _watchController;
+  int? _watchNumber;
   bool _isSaving = false;
 
   bool get _isEditing => widget.firefighter != null;
@@ -26,15 +26,12 @@ class _AddFirefighterPageState extends State<AddFirefighterPage> {
     _fullNameController = TextEditingController(
       text: widget.firefighter?.fullName ?? '',
     );
-    _watchController = TextEditingController(
-      text: widget.firefighter?.watch ?? '',
-    );
+    _watchNumber = widget.firefighter?.watchNumber;
   }
 
   @override
   void dispose() {
     _fullNameController.dispose();
-    _watchController.dispose();
     super.dispose();
   }
 
@@ -45,7 +42,7 @@ class _AddFirefighterPageState extends State<AddFirefighterPage> {
     final firefighter = Firefighter(
       id: widget.firefighter?.id,
       fullName: _fullNameController.text.trim(),
-      watch: _watchController.text.trim(),
+      watch: _watchNumber!.toString(),
     );
 
     try {
@@ -96,13 +93,22 @@ class _AddFirefighterPageState extends State<AddFirefighterPage> {
               },
             ),
             const SizedBox(height: 16),
-            TextFormField(
-              controller: _watchController,
-              decoration: const InputDecoration(labelText: 'Караул / зміна'),
+            DropdownButtonFormField<int>(
+              initialValue: _watchNumber,
+              decoration: const InputDecoration(
+                labelText: 'Караул',
+                hintText: 'Оберіть караул',
+              ),
+              items: [
+                for (var watch = 1; watch <= 4; watch++)
+                  DropdownMenuItem(
+                    value: watch,
+                    child: Text('$watch-й караул'),
+                  ),
+              ],
+              onChanged: (value) => setState(() => _watchNumber = value),
               validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Вкажіть караул або зміну';
-                }
+                if (value == null) return 'Оберіть караул';
                 return null;
               },
             ),

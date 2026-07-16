@@ -13,17 +13,22 @@ import 'package:gdzs_calc/shared/repositories/firefighter_repository.dart';
 import 'package:gdzs_calc/shared/repositories/unit_repository.dart';
 import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
 import 'package:gdzs_calc/shared/widgets/app_button.dart';
+import 'package:gdzs_calc/shared/utils/firefighter_watch_groups.dart';
 
 class NewTeamPage extends StatefulWidget {
   final List<Unit>? initialUnits;
   final List<Apparatus>? initialApparatus;
   final List<Firefighter>? initialFirefighters;
+  final Future<List<Firefighter>> Function()? firefightersLoader;
+  final WidgetBuilder? firefightersDirectoryBuilder;
 
   const NewTeamPage({
     super.key,
     this.initialUnits,
     this.initialApparatus,
     this.initialFirefighters,
+    this.firefightersLoader,
+    this.firefightersDirectoryBuilder,
   });
 
   @override
@@ -43,7 +48,9 @@ class _NewTeamPageState extends State<NewTeamPage> {
   Unit? _selectedUnit;
   Apparatus? _selectedApparatus;
   final List<int> _selectedIds = [];
+  int? _selectedWatch;
   int? _leaderId;
+  int _watchFieldRevision = 0;
   WorkLoad _workLoad = WorkLoad.medium;
   int _step = 0;
   bool _loading = true;
@@ -53,6 +60,15 @@ class _NewTeamPageState extends State<NewTeamPage> {
     for (final id in _selectedIds)
       _firefighters.firstWhere((member) => member.id == id),
   ];
+
+  List<int> get _watchOptions => availableWatchValues(_firefighters);
+
+  List<Firefighter> get _visibleFirefighters {
+    final watch = _selectedWatch;
+    if (watch == null) return const [];
+    final groups = groupFirefightersByWatch(_firefighters);
+    return groups[watch] ?? const [];
+  }
 
   bool get _compositionValid =>
       _selectedUnit != null &&
@@ -87,15 +103,53 @@ class _NewTeamPageState extends State<NewTeamPage> {
   Future<void> _loadData() async {
     try {
       final values = await Future.wait([
-        _unitRepository.getAll(),
-        _apparatusRepository.getAll(),
-        _firefighterRepository.getAll(),
+        widget.initialUnits == null
+            ? _unitRepository.getAll()
+            : Future.value(widget.initialUnits!),
+        widget.initialApparatus == null
+            ? _apparatusRepository.getAll()
+            : Future.value(widget.initialApparatus!),
+        widget.firefightersLoader?.call() ??
+            (widget.initialFirefighters == null
+                ? _firefighterRepository.getAll()
+                : Future.value(widget.initialFirefighters!)),
       ]);
       if (!mounted) return;
       setState(() {
         _units = values[0] as List<Unit>;
         _apparatus = values[1] as List<Apparatus>;
         _firefighters = values[2] as List<Firefighter>;
+        final availableIds = _firefighters
+            .where((member) => member.id != null)
+            .map((member) => member.id!)
+            .toSet();
+        final removedIds = _selectedIds
+            .where((id) => !availableIds.contains(id))
+            .toList();
+        for (final id in removedIds) {
+          _selectedIds.remove(id);
+          _pressureControllers.remove(id)?.dispose();
+        }
+        if (_selectedWatch != null && _watchOptions.contains(_selectedWatch)) {
+          final visibleIds = _visibleFirefighters
+              .where((member) => member.id != null)
+              .map((member) => member.id!)
+              .toSet();
+          final hiddenIds = _selectedIds
+              .where((id) => !visibleIds.contains(id))
+              .toList();
+          for (final id in hiddenIds) {
+            _selectedIds.remove(id);
+            _pressureControllers.remove(id)?.dispose();
+          }
+        }
+        if (_leaderId != null && !_selectedIds.contains(_leaderId)) {
+          _leaderId = null;
+        }
+        if (_selectedWatch != null && !_watchOptions.contains(_selectedWatch)) {
+          _clearCompositionSelection();
+          _selectedWatch = null;
+        }
         _loading = false;
       });
     } catch (_) {
@@ -114,16 +168,77 @@ class _NewTeamPageState extends State<NewTeamPage> {
     await _loadData();
   }
 
+  Future<void> _openFirefightersDirectory() async {
+    final page =
+        widget.firefightersDirectoryBuilder?.call(context) ??
+        const FirefightersPage();
+    await _openDirectory(page);
+  }
+
   void _toggleMember(Firefighter member, bool selected) {
     final id = member.id!;
+    if (selected && _selectedIds.length >= 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('До складу ланки можна включити не більше 5 осіб'),
+        ),
+      );
+      return;
+    }
+    final removedLeader = !selected && _leaderId == id;
     setState(() {
       if (selected) {
-        if (_selectedIds.length < 5) _selectedIds.add(id);
+        _selectedIds.add(id);
       } else {
         _selectedIds.remove(id);
-        if (_leaderId == id) _leaderId = null;
+        _pressureControllers.remove(id)?.dispose();
+        if (removedLeader) _leaderId = null;
       }
     });
+    if (removedLeader) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Оберіть нового командира ланки')),
+      );
+    }
+  }
+
+  void _clearCompositionSelection() {
+    _selectedIds.clear();
+    _leaderId = null;
+    for (final controller in _pressureControllers.values) {
+      controller.dispose();
+    }
+    _pressureControllers.clear();
+  }
+
+  Future<void> _changeWatch(int? watch) async {
+    if (watch == null || watch == _selectedWatch) return;
+    if (_selectedIds.isNotEmpty) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Змінити караул?'),
+          content: const Text('Обраний склад ланки та командир будуть очищені'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Скасувати'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Змінити караул'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      if (confirmed != true) {
+        setState(() => _watchFieldRevision += 1);
+        return;
+      }
+      _clearCompositionSelection();
+    }
+    setState(() => _selectedWatch = watch);
   }
 
   void _continueToPreparation() {
@@ -216,14 +331,11 @@ class _NewTeamPageState extends State<NewTeamPage> {
     ),
   );
 
-  Widget _composition() => RadioGroup<int>(
-    groupValue: _leaderId,
-    onChanged: (value) => setState(() => _leaderId = value),
-    child: Column(
+  Widget _composition() {
+    final visibleFirefighters = _visibleFirefighters;
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Склад ланки', style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 16),
         if (_units.isEmpty)
           _empty(
             'Додайте підрозділ у довідник.',
@@ -260,43 +372,115 @@ class _NewTeamPageState extends State<NewTeamPage> {
             ],
             onChanged: (value) => setState(() => _selectedApparatus = value),
           ),
-        const SizedBox(height: 24),
-        Text(
-          'Газодимозахисники (2–5)',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
+        const SizedBox(height: 20),
         if (_firefighters.isEmpty)
           _empty(
             'Додайте газодимозахисників у довідник.',
-            'Відкрити довідник',
-            () => _openDirectory(const FirefightersPage()),
+            'Додати газодимозахисника',
+            _openFirefightersDirectory,
           )
         else
-          ..._firefighters.where((member) => member.id != null).map((member) {
+          KeyedSubtree(
+            key: ValueKey('watch-$_selectedWatch-$_watchFieldRevision'),
+            child: DropdownButtonFormField<int>(
+              key: const Key('watch-selector'),
+              initialValue: _selectedWatch,
+              decoration: const InputDecoration(
+                labelText: 'Караул',
+                hintText: 'Оберіть караул',
+                prefixIcon: Icon(Icons.shield_outlined),
+              ),
+              items: [
+                for (final watch in _watchOptions)
+                  DropdownMenuItem(
+                    value: watch,
+                    child: Text(watchValueLabel(watch)),
+                  ),
+              ],
+              onChanged: _changeWatch,
+            ),
+          ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Склад ланки',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+            ),
+            Text(
+              'Обрано: ${_selectedIds.length}',
+              key: const Key('selected-members-count'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (_selectedWatch == null)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Спочатку оберіть караул'),
+            ),
+          )
+        else if (visibleFirefighters.isEmpty)
+          _empty(
+            'У цьому караулі немає доданих газодимозахисників',
+            'Додати газодимозахисника',
+            _openFirefightersDirectory,
+          )
+        else
+          ...visibleFirefighters.map((member) {
             final selected = _selectedIds.contains(member.id);
             return Card(
-              child: Column(
-                children: [
-                  CheckboxListTile(
-                    value: selected,
-                    enabled: selected || _selectedIds.length < 5,
-                    title: Text(member.fullName),
-                    onChanged: (value) {
-                      if (value != null) _toggleMember(member, value);
-                    },
-                  ),
-                  if (selected)
-                    RadioListTile<int>(
-                      value: member.id!,
-                      title: const Text('Командир ланки'),
-                    ),
-                ],
+              color: selected
+                  ? Theme.of(context).colorScheme.primaryContainer
+                  : null,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: selected
+                    ? BorderSide(
+                        color: Theme.of(context).colorScheme.primary,
+                        width: 1.5,
+                      )
+                    : BorderSide.none,
+              ),
+              child: CheckboxListTile(
+                dense: true,
+                value: selected,
+                title: Text(member.fullName),
+                subtitle: member.id == _leaderId
+                    ? const Text('Командир')
+                    : null,
+                onChanged: (value) {
+                  if (value != null) _toggleMember(member, value);
+                },
               ),
             );
           }),
+        const SizedBox(height: 16),
+        KeyedSubtree(
+          key: ValueKey('leader-$_leaderId-${_selectedIds.join('-')}'),
+          child: DropdownButtonFormField<int>(
+            key: const Key('leader-selector'),
+            initialValue: _leaderId,
+            decoration: const InputDecoration(labelText: 'Командир ланки'),
+            items: [
+              for (final member in _selectedFirefighters)
+                DropdownMenuItem(
+                  value: member.id,
+                  child: Text(member.fullName),
+                ),
+            ],
+            onChanged: _selectedIds.isEmpty
+                ? null
+                : (value) => setState(() => _leaderId = value),
+          ),
+        ),
       ],
-    ),
-  );
+    );
+  }
 
   Widget _preparation() {
     final apparatus = _selectedApparatus!;
