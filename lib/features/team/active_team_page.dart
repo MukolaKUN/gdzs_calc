@@ -2,8 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:gdzs_calc/features/team/models/active_team_session.dart';
-import 'package:gdzs_calc/features/team/widgets/pressure_input.dart';
-import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
+import 'package:gdzs_calc/features/team/widgets/pressure_check_sheet.dart';
 
 class ActiveTeamPage extends StatefulWidget {
   final ActiveTeamSession session;
@@ -136,128 +135,29 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
 
   Future<void> _showPressureCheck() async {
     final openedAt = DateTime.now();
-    final latestCheck = _session.latestPressureCheck;
-    final referenceTime = latestCheck?.checkedAt ?? _session.arrivalTime;
-    final referencePressures = _session.latestPressuresByFirefighterId;
-    final elapsedMinutes = openedAt
-        .difference(referenceTime)
-        .inMinutes
-        .clamp(0, 1440)
-        .toInt();
-    final controllers = <int, TextEditingController>{};
-    final maximumPressures = <int, int>{};
-    final formKey = GlobalKey<FormState>();
-
-    for (final participant in _session.participants) {
-      final id = participant.id;
-      if (id == null) continue;
-      final referencePressure = referencePressures[id] ?? 0;
-      final estimatedPressure =
-          GdzsCalculator.calculateEstimatedArrivalPressure(
-            startPressure: referencePressure,
-            travelTimeMinutes: elapsedMinutes,
-            cylinderVolume: _session.cylinderVolume,
-            cylindersCount: _session.cylindersCount,
-            workLoad: _session.workLoad,
-          );
-      maximumPressures[id] = referencePressure;
-      controllers[id] = TextEditingController(
-        text: estimatedPressure.toString(),
-      );
-    }
-
-    final confirmed = await showModalBottomSheet<bool>(
+    final result = await showModalBottomSheet<Map<int, int>>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (sheetContext) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            16,
-            16,
-            16,
-            16 + MediaQuery.viewInsetsOf(sheetContext).bottom,
-          ),
-          child: SingleChildScrollView(
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Контроль тиску',
-                    style: Theme.of(sheetContext).textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    latestCheck == null
-                        ? 'Прогноз від тиску після прибуття'
-                        : 'Прогноз від останнього контрольного заміру',
-                  ),
-                  const SizedBox(height: 12),
-                  ..._session.participants.map((participant) {
-                    final id = participant.id;
-                    if (id == null || !controllers.containsKey(id)) {
-                      return const SizedBox.shrink();
-                    }
-                    return PressureInput(
-                      key: ValueKey('pressure-check-$id'),
-                      firefighterName: participant.fullName,
-                      isLeader: id == _session.leaderId,
-                      controller: controllers[id]!,
-                      minValue: 0,
-                      maxValue: maximumPressures[id]!,
-                      helperText: 'Звірте прогноз із фактичною доповіддю',
-                    );
-                  }),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: () {
-                      if (formKey.currentState?.validate() != true) return;
-                      Navigator.pop(sheetContext, true);
-                    },
-                    child: const Text('Підтвердити замір'),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(sheetContext, false),
-                    child: const Text('Скасувати'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
+      builder: (_) => PressureCheckSheet(session: _session, openedAt: openedAt),
     );
 
-    if (confirmed == true && mounted) {
-      final checkedAt = DateTime.now();
-      final pressures = <int, int>{
-        for (final entry in controllers.entries)
-          entry.key: int.parse(entry.value.text.trim()),
-      };
-      _session.addPressureCheck(
-        PressureCheck(
-          checkedAt: checkedAt,
-          pressuresByFirefighterId: pressures,
-        ),
-      );
-      _session.addEvent(
-        ActiveTeamEvent(
-          time: checkedAt,
-          title: 'Проведено контроль тиску',
-          description:
-              'Мінімальний підтверджений тиск: '
-              '${pressures.values.reduce((a, b) => a < b ? a : b)} бар.',
-        ),
-      );
-      setState(() => _now = checkedAt);
-    }
+    if (!mounted || result == null) return;
 
-    for (final controller in controllers.values) {
-      controller.dispose();
-    }
+    final checkedAt = DateTime.now();
+    _session.addPressureCheck(
+      PressureCheck(checkedAt: checkedAt, pressuresByFirefighterId: result),
+    );
+    _session.addEvent(
+      ActiveTeamEvent(
+        time: checkedAt,
+        title: 'Проведено контроль тиску',
+        description:
+            'Мінімальний підтверджений тиск: '
+            '${result.values.reduce((a, b) => a < b ? a : b)} бар.',
+      ),
+    );
+    setState(() => _now = checkedAt);
   }
 
   void _startExiting() {
@@ -507,7 +407,7 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
                   ),
                 ),
               ),
-              if (pressureWarning != null) pressureWarning,
+              ?pressureWarning,
               Text(
                 'Склад ланки',
                 style: Theme.of(context).textTheme.titleLarge,

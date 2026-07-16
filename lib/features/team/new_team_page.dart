@@ -590,111 +590,114 @@ class _NewTeamPageState extends State<NewTeamPage> {
   }
 
   Widget _buildCompositionStep() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Склад ланки', style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 16),
-        if (_units.isEmpty)
-          _EmptyDirectoryCard(
-            message: 'Додайте хоча б один підрозділ у довідник.',
-            actionLabel: 'Відкрити підрозділи',
-            onPressed: _openUnitsDirectory,
-          )
-        else
-          DropdownButtonFormField<Unit>(
-            value: _selectedUnit,
-            decoration: const InputDecoration(labelText: 'Підрозділ'),
-            items: _units
-                .map(
-                  (unit) => DropdownMenuItem(
-                    value: unit,
-                    child: Text('${unit.name} (${unit.city})'),
-                  ),
-                )
-                .toList(),
-            onChanged: (unit) {
-              setState(() => _selectedUnit = unit);
-            },
-          ),
-        const SizedBox(height: 16),
-        if (_apparatus.isEmpty)
-          _EmptyDirectoryCard(
-            message: 'Додайте хоча б один апарат у довідник.',
-            actionLabel: 'Відкрити апарати',
-            onPressed: _openApparatusDirectory,
-          )
-        else
-          DropdownButtonFormField<Apparatus>(
-            value: _selectedApparatus,
-            decoration: const InputDecoration(labelText: 'Апарат для ланки'),
-            items: _apparatus
-                .map(
-                  (apparatus) => DropdownMenuItem(
-                    value: apparatus,
-                    child: Text(apparatus.name),
-                  ),
-                )
-                .toList(),
-            onChanged: (apparatus) {
-              setState(() => _selectedApparatus = apparatus);
-            },
-          ),
-        const SizedBox(height: 24),
-        Text(
-          'Газодимозахисники (2–5)',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        if (_firefighters.isEmpty)
-          _EmptyDirectoryCard(
-            message:
-                'Довідник газодимозахисників порожній. Спершу заповніть його в налаштуваннях.',
-            actionLabel: 'Відкрити довідник газодимозахисників',
-            onPressed: _openFirefightersDirectory,
-          )
-        else
-          ..._firefighters.where((firefighter) => firefighter.id != null).map((
-            firefighter,
-          ) {
-            final id = firefighter.id!;
-            final isSelected = _selectedFirefighterIds.contains(id);
-            final canSelect = isSelected || _selectedFirefighterIds.length < 5;
-
-            return Card(
-              child: Column(
-                children: [
-                  CheckboxListTile(
-                    value: isSelected,
-                    enabled: canSelect,
-                    title: Text(firefighter.fullName),
-                    onChanged: (selected) {
-                      if (selected != null) {
-                        _toggleFirefighter(firefighter, selected);
-                      }
-                    },
-                  ),
-                  if (isSelected)
-                    RadioListTile<int>(
-                      value: id,
-                      groupValue: _leaderId,
-                      title: const Text('Командир ланки'),
-                      onChanged: (value) {
-                        setState(() => _leaderId = value);
-                      },
+    return RadioGroup<int>(
+      groupValue: _leaderId,
+      onChanged: (value) {
+        setState(() => _leaderId = value);
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Склад ланки', style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 16),
+          if (_units.isEmpty)
+            _EmptyDirectoryCard(
+              message: 'Додайте хоча б один підрозділ у довідник.',
+              actionLabel: 'Відкрити підрозділи',
+              onPressed: _openUnitsDirectory,
+            )
+          else
+            DropdownButtonFormField<Unit>(
+              initialValue: _selectedUnit,
+              decoration: const InputDecoration(labelText: 'Підрозділ'),
+              items: _units
+                  .map(
+                    (unit) => DropdownMenuItem(
+                      value: unit,
+                      child: Text('${unit.name} (${unit.city})'),
                     ),
-                ],
-              ),
-            );
-          }),
-        if (_selectedFirefighterIds.length == 2)
-          const Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: Text(
-              'Ланка з двох осіб допускається лише у виняткових випадках',
-              style: TextStyle(color: Colors.orange),
+                  )
+                  .toList(),
+              onChanged: (unit) {
+                setState(() => _selectedUnit = unit);
+              },
             ),
+          const SizedBox(height: 16),
+          if (_apparatus.isEmpty)
+            _EmptyDirectoryCard(
+              message: 'Додайте хоча б один апарат у довідник.',
+              actionLabel: 'Відкрити апарати',
+              onPressed: _openApparatusDirectory,
+            )
+          else
+            DropdownButtonFormField<Apparatus>(
+              initialValue: _selectedApparatus,
+              decoration: const InputDecoration(labelText: 'Апарат для ланки'),
+              items: _apparatus
+                  .map(
+                    (apparatus) => DropdownMenuItem(
+                      value: apparatus,
+                      child: Text(apparatus.name),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (apparatus) {
+                setState(() => _selectedApparatus = apparatus);
+              },
+            ),
+          const SizedBox(height: 24),
+          Text(
+            'Газодимозахисники (2–5)',
+            style: Theme.of(context).textTheme.titleLarge,
           ),
-      ],
+          if (_firefighters.isEmpty)
+            _EmptyDirectoryCard(
+              message:
+                  'Довідник газодимозахисників порожній. Спершу заповніть його в налаштуваннях.',
+              actionLabel: 'Відкрити довідник газодимозахисників',
+              onPressed: _openFirefightersDirectory,
+            )
+          else
+            ..._firefighters.where((firefighter) => firefighter.id != null).map(
+              (firefighter) {
+                final id = firefighter.id!;
+                final isSelected = _selectedFirefighterIds.contains(id);
+                final canSelect =
+                    isSelected || _selectedFirefighterIds.length < 5;
+
+                return Card(
+                  child: Column(
+                    children: [
+                      CheckboxListTile(
+                        value: isSelected,
+                        enabled: canSelect,
+                        title: Text(firefighter.fullName),
+                        onChanged: (selected) {
+                          if (selected != null) {
+                            _toggleFirefighter(firefighter, selected);
+                          }
+                        },
+                      ),
+                      if (isSelected)
+                        RadioListTile<int>(
+                          value: id,
+                          title: const Text('Командир ланки'),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          if (_selectedFirefighterIds.length == 2)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                'Ланка з двох осіб допускається лише у виняткових випадках',
+                style: TextStyle(color: Colors.orange),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -829,7 +832,7 @@ class _NewTeamPageState extends State<NewTeamPage> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<WorkLoad>(
-            value: _workLoad,
+            initialValue: _workLoad,
             decoration: const InputDecoration(labelText: 'Навантаження'),
             items: const [
               DropdownMenuItem(
