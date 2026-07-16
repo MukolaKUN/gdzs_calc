@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gdzs_calc/features/team/active_team_page.dart';
 import 'package:gdzs_calc/features/team/models/active_team_session.dart';
+import 'package:gdzs_calc/features/team/repositories/team_session_repository.dart';
 import 'package:gdzs_calc/features/team/widgets/pressure_check_sheet.dart';
 import 'package:gdzs_calc/shared/models/firefighter.dart';
 import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
@@ -16,8 +17,14 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final session = _session();
     await tester.pumpWidget(
-      MaterialApp(home: ActiveTeamPage(session: session)),
+      MaterialApp(
+        home: ActiveTeamPage(
+          sessionId: 1,
+          repository: _MemoryRepository(session),
+        ),
+      ),
     );
+    await tester.pump();
 
     expect(find.text('Ланка прямує до місця роботи'), findsOneWidget);
     expect(find.text('Час прямування'), findsOneWidget);
@@ -54,10 +61,7 @@ void main() {
 
     expect(session.stage, ActiveTeamStage.completed);
     expect(find.text('Роботу ланки завершено'), findsOneWidget);
-    expect(
-      find.text('Дані ланки зберігаються лише до закриття застосунку'),
-      findsOneWidget,
-    );
+    expect(find.text('Дані ланки збережено'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -74,8 +78,14 @@ void main() {
       _setLargeView(tester);
       final session = _sessionAt(stage);
       await tester.pumpWidget(
-        MaterialApp(home: ActiveTeamPage(session: session)),
+        MaterialApp(
+          home: ActiveTeamPage(
+            sessionId: 1,
+            repository: _MemoryRepository(session),
+          ),
+        ),
       );
+      await tester.pump();
 
       await tester.ensureVisible(find.text('Надзвичайна ситуація'));
       expect(find.text('Надзвичайна ситуація'), findsOneWidget);
@@ -90,8 +100,14 @@ void main() {
     _setLargeView(tester);
     final session = _session();
     await tester.pumpWidget(
-      MaterialApp(home: ActiveTeamPage(session: session)),
+      MaterialApp(
+        home: ActiveTeamPage(
+          sessionId: 1,
+          repository: _MemoryRepository(session),
+        ),
+      ),
     );
+    await tester.pump();
     await _activateLostCommunication(tester);
 
     expect(find.text('АВАРІЙНИЙ РЕЖИМ'), findsOneWidget);
@@ -115,8 +131,14 @@ void main() {
     _setLargeView(tester);
     final session = _session();
     await tester.pumpWidget(
-      MaterialApp(home: ActiveTeamPage(session: session)),
+      MaterialApp(
+        home: ActiveTeamPage(
+          sessionId: 1,
+          repository: _MemoryRepository(session),
+        ),
+      ),
     );
+    await tester.pump();
     await _activateLostCommunication(tester);
 
     await tester.ensureVisible(find.text('Зв’язок відновлено'));
@@ -146,8 +168,14 @@ void main() {
       communicationAvailable: true,
     );
     await tester.pumpWidget(
-      MaterialApp(home: ActiveTeamPage(session: session)),
+      MaterialApp(
+        home: ActiveTeamPage(
+          sessionId: 1,
+          repository: _MemoryRepository(session),
+        ),
+      ),
     );
+    await tester.pump();
 
     await tester.ensureVisible(find.text('Надзвичайну ситуацію усунено'));
     await tester.tap(find.text('Надзвичайну ситуацію усунено'));
@@ -171,8 +199,14 @@ void main() {
       communicationAvailable: false,
     );
     await tester.pumpWidget(
-      MaterialApp(home: ActiveTeamPage(session: session)),
+      MaterialApp(
+        home: ActiveTeamPage(
+          sessionId: 1,
+          repository: _MemoryRepository(session),
+        ),
+      ),
     );
+    await tester.pump();
 
     await tester.ensureVisible(find.text('Ланка вийшла на свіже повітря'));
     await tester.tap(find.text('Ланка вийшла на свіже повітря'));
@@ -254,4 +288,102 @@ ActiveTeamSession _sessionAt(ActiveTeamStage stage) {
     session.startExit(at: DateTime.now().subtract(const Duration(minutes: 1)));
   }
   return session;
+}
+
+class _MemoryRepository extends TeamSessionRepository {
+  final ActiveTeamSession value;
+  _MemoryRepository(this.value);
+
+  @override
+  Future<TeamSessionRecord?> getById(int id) async =>
+      TeamSessionRecord(id: id, session: value, watchNumber: 1);
+
+  @override
+  Future<void> confirmArrival({
+    required int sessionId,
+    required DateTime arrivalTime,
+    required Map<int, int> pressures,
+    required CompressedAirCalculationResult calculation,
+    required int controllingFirefighterId,
+  }) async {
+    value.confirmArrival(
+      arrivalTime: arrivalTime,
+      arrivalPressures: pressures,
+      calculation: calculation,
+    );
+  }
+
+  @override
+  Future<void> addPressureCheck({
+    required int sessionId,
+    required DateTime checkedAt,
+    required Map<int, int> estimated,
+    required Map<int, int> actual,
+    required bool emergencyMode,
+  }) async {
+    final check = PressureCheck(
+      checkedAt: checkedAt,
+      pressuresByFirefighterId: actual,
+    );
+    if (emergencyMode) {
+      value.addEmergencyPressureCheck(check);
+    } else {
+      value.addPressureCheck(check);
+    }
+  }
+
+  @override
+  Future<void> startExit(int sessionId, DateTime at) async {
+    value.startExit(at: at);
+  }
+
+  @override
+  Future<void> completeSession(
+    int sessionId,
+    DateTime at, {
+    required bool fromEmergency,
+  }) async {
+    if (fromEmergency) {
+      value.completeFromEmergency(at: at);
+    } else {
+      value.complete(at: at);
+    }
+  }
+
+  @override
+  Future<void> startEmergency(
+    int sessionId,
+    TeamEmergency emergency,
+    String description,
+  ) async {
+    value.startEmergency(
+      reason: emergency.reason,
+      at: emergency.startedAt,
+      communicationAvailable: emergency.communicationAvailable,
+      note: emergency.note,
+    );
+  }
+
+  @override
+  Future<void> restoreCommunication(int sessionId, DateTime at) async {
+    value.restoreEmergencyCommunication(at: at);
+  }
+
+  @override
+  Future<void> resolveEmergency(
+    int sessionId,
+    DateTime at,
+    String description,
+  ) async {
+    value.resolveEmergency(at: at);
+  }
+
+  @override
+  Future<void> addEmergencyAction(
+    int sessionId,
+    DateTime at,
+    String title,
+  ) async {
+    value.recordEmergencyAction(at: at, title: title);
+  }
 }

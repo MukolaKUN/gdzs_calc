@@ -18,7 +18,10 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE units(
@@ -27,6 +30,7 @@ class DatabaseService {
             city TEXT NOT NULL
           )
         ''');
+        await createTeamSessionTables(db);
 
         await _createApparatusTable(db);
 
@@ -72,6 +76,9 @@ class DatabaseService {
             );
           }
         }
+        if (oldVersion < 4) {
+          await createTeamSessionTables(db);
+        }
       },
     );
   }
@@ -85,6 +92,98 @@ class DatabaseService {
         cylinderVolume REAL NOT NULL,
         cylindersCount INTEGER NOT NULL,
         reservePressure INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  static Future<void> createTeamSessionTables(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE team_sessions(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        unitId INTEGER NOT NULL,
+        unitNameSnapshot TEXT NOT NULL,
+        apparatusId INTEGER NOT NULL,
+        apparatusNameSnapshot TEXT NOT NULL,
+        apparatusWorkingPressure INTEGER NOT NULL,
+        apparatusCylinderVolume REAL NOT NULL,
+        apparatusCylindersCount INTEGER NOT NULL,
+        apparatusReservePressure INTEGER NOT NULL,
+        leaderFirefighterId INTEGER NOT NULL,
+        workLoad TEXT NOT NULL,
+        stage TEXT NOT NULL,
+        inclusionTime TEXT NOT NULL,
+        arrivalTime TEXT,
+        initialPlannedExitTime TEXT,
+        currentPlannedExitTime TEXT,
+        travelPressure INTEGER,
+        exitPressure INTEGER,
+        workingPressure INTEGER,
+        workingTimeMinutes INTEGER,
+        controllingFirefighterId INTEGER,
+        exitStartedAt TEXT,
+        completedAt TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE team_session_members(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sessionId INTEGER NOT NULL,
+        firefighterId INTEGER NOT NULL,
+        firefighterNameSnapshot TEXT NOT NULL,
+        watchNumberSnapshot INTEGER,
+        isLeader INTEGER NOT NULL DEFAULT 0,
+        position INTEGER NOT NULL,
+        startPressure INTEGER NOT NULL,
+        arrivalPressure INTEGER,
+        FOREIGN KEY(sessionId) REFERENCES team_sessions(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE team_pressure_checks(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sessionId INTEGER NOT NULL,
+        checkedAt TEXT NOT NULL,
+        controllingFirefighterId INTEGER NOT NULL,
+        remainingWorkMinutes INTEGER NOT NULL,
+        plannedExitTimeAfterCheck TEXT NOT NULL,
+        emergencyMode INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY(sessionId) REFERENCES team_sessions(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE team_pressure_check_members(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pressureCheckId INTEGER NOT NULL,
+        firefighterId INTEGER NOT NULL,
+        estimatedPressure INTEGER NOT NULL,
+        actualPressure INTEGER NOT NULL,
+        FOREIGN KEY(pressureCheckId) REFERENCES team_pressure_checks(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE team_session_events(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sessionId INTEGER NOT NULL,
+        eventTime TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        FOREIGN KEY(sessionId) REFERENCES team_sessions(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE team_emergencies(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sessionId INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        startedAt TEXT NOT NULL,
+        stageAtStart TEXT NOT NULL,
+        communicationAvailable INTEGER NOT NULL,
+        lastContactAt TEXT,
+        note TEXT,
+        resolvedAt TEXT,
+        FOREIGN KEY(sessionId) REFERENCES team_sessions(id) ON DELETE CASCADE
       )
     ''');
   }

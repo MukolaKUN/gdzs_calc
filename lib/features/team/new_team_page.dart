@@ -3,6 +3,7 @@ import 'package:gdzs_calc/features/apparatus/apparatus_page.dart';
 import 'package:gdzs_calc/features/firefighters/firefighters_page.dart';
 import 'package:gdzs_calc/features/team/active_team_page.dart';
 import 'package:gdzs_calc/features/team/models/active_team_session.dart';
+import 'package:gdzs_calc/features/team/repositories/team_session_repository.dart';
 import 'package:gdzs_calc/features/team/widgets/pressure_input.dart';
 import 'package:gdzs_calc/features/units/units_page.dart';
 import 'package:gdzs_calc/shared/models/apparatus.dart';
@@ -21,6 +22,7 @@ class NewTeamPage extends StatefulWidget {
   final List<Firefighter>? initialFirefighters;
   final Future<List<Firefighter>> Function()? firefightersLoader;
   final WidgetBuilder? firefightersDirectoryBuilder;
+  final TeamSessionRepository? teamSessionRepository;
 
   const NewTeamPage({
     super.key,
@@ -29,6 +31,7 @@ class NewTeamPage extends StatefulWidget {
     this.initialFirefighters,
     this.firefightersLoader,
     this.firefightersDirectoryBuilder,
+    this.teamSessionRepository,
   });
 
   @override
@@ -55,6 +58,8 @@ class _NewTeamPageState extends State<NewTeamPage> {
   int _step = 0;
   bool _loading = true;
   String? _error;
+  bool _isSaving = false;
+  late final TeamSessionRepository _teamSessionRepository;
 
   List<Firefighter> get _selectedFirefighters => [
     for (final id in _selectedIds)
@@ -80,6 +85,8 @@ class _NewTeamPageState extends State<NewTeamPage> {
   @override
   void initState() {
     super.initState();
+    _teamSessionRepository =
+        widget.teamSessionRepository ?? const TeamSessionRepository();
     if (widget.initialUnits != null &&
         widget.initialApparatus != null &&
         widget.initialFirefighters != null) {
@@ -254,6 +261,7 @@ class _NewTeamPageState extends State<NewTeamPage> {
   }
 
   Future<void> _includeTeam() async {
+    if (_isSaving) return;
     if (!_pressureFormKey.currentState!.validate()) return;
     final apparatus = _selectedApparatus!;
     final pressures = {
@@ -293,28 +301,89 @@ class _NewTeamPageState extends State<NewTeamPage> {
     );
     if (!mounted || confirmed != true) return;
 
-    final inclusionTime = DateTime.now();
-    final session = ActiveTeamSession.advancing(
-      unitName: _selectedUnit!.name,
-      apparatusName: apparatus.name,
-      participants: _selectedFirefighters,
-      leaderId: _leaderId!,
-      startPressuresByFirefighterId: pressures,
-      inclusionTime: inclusionTime,
-      workLoad: _workLoad,
-      cylinderVolume: apparatus.cylinderVolume,
-      cylindersCount: apparatus.cylindersCount,
-      reservePressure: apparatus.reservePressure,
-      events: [
-        ActiveTeamEvent(
-          time: inclusionTime,
-          title: 'Ланка увімкнулася в ЗІЗОД',
+    setState(() => _isSaving = true);
+    try {
+      final active = await _teamSessionRepository.getActiveSession();
+      if (!mounted) return;
+      if (active != null) {
+        setState(() => _isSaving = false);
+        await _showExistingSession(active.id);
+        return;
+      }
+
+      final inclusionTime = DateTime.now();
+      final session = ActiveTeamSession.advancing(
+        unitName: _selectedUnit!.name,
+        apparatusName: apparatus.name,
+        participants: _selectedFirefighters,
+        leaderId: _leaderId!,
+        startPressuresByFirefighterId: pressures,
+        inclusionTime: inclusionTime,
+        workLoad: _workLoad,
+        cylinderVolume: apparatus.cylinderVolume,
+        cylindersCount: apparatus.cylindersCount,
+        reservePressure: apparatus.reservePressure,
+        events: [
+          ActiveTeamEvent(
+            time: inclusionTime,
+            title: 'Ланка увімкнулася в ЗІЗОД',
+          ),
+        ],
+      );
+      final sessionId = await _teamSessionRepository.createAdvancingSession(
+        unit: _selectedUnit!,
+        apparatus: apparatus,
+        session: session,
+      );
+      if (!mounted) return;
+      await Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ActiveTeamPage(
+            sessionId: sessionId,
+            repository: _teamSessionRepository,
+          ),
         ),
-      ],
-    );
-    await Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => ActiveTeamPage(session: session)),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не вдалося зберегти активну ланку.')),
+      );
+    }
+  }
+
+  Future<void> _showExistingSession(int sessionId) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Уже є активна ланка'),
+        content: const Text(
+          'Спочатку завершіть поточну ланку або відкрийте її для продовження',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Скасувати'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ActiveTeamPage(
+                    sessionId: sessionId,
+                    repository: _teamSessionRepository,
+                  ),
+                ),
+              );
+            },
+            child: const Text('Відкрити активну ланку'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -526,8 +595,8 @@ class _NewTeamPageState extends State<NewTeamPage> {
           ),
           const SizedBox(height: 24),
           AppButton(
-            text: 'Увімкнутися в ЗІЗОД',
-            onPressed: _includeTeam,
+            text: _isSaving ? 'Збереження…' : 'Увімкнутися в ЗІЗОД',
+            onPressed: _isSaving ? null : _includeTeam,
             icon: Icons.timer,
           ),
         ],

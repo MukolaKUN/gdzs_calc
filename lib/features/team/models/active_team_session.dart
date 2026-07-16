@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_initializing_formals
+
 import 'package:gdzs_calc/shared/models/firefighter.dart';
 import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
 
@@ -149,6 +151,58 @@ class ActiveTeamSession {
        _pressureChecks = [],
        _events = List.of(events),
        _activeEmergency = null;
+
+  ActiveTeamSession.restored({
+    required this.unitName,
+    required this.apparatusName,
+    required List<Firefighter> participants,
+    required this.leaderId,
+    required Map<int, int> startPressuresByFirefighterId,
+    required this.inclusionTime,
+    required this.workLoad,
+    required this.cylinderVolume,
+    required this.cylindersCount,
+    required this.reservePressure,
+    required ActiveTeamStage stage,
+    required DateTime? arrivalTime,
+    required Map<int, int> arrivalPressuresByFirefighterId,
+    required DateTime? initialPlannedExitTime,
+    required DateTime? currentPlannedExitTime,
+    required DateTime? exitStartedAt,
+    required DateTime? completedAt,
+    required int? travelPressure,
+    required int? exitPressure,
+    required int? workingPressure,
+    required int? workingTimeMinutes,
+    required int? controllingFirefighterId,
+    required List<PressureCheck> pressureChecks,
+    required List<ActiveTeamEvent> events,
+    TeamEmergency? activeEmergency,
+  }) : participants = List.unmodifiable(participants),
+       startPressuresByFirefighterId = Map.unmodifiable(
+         startPressuresByFirefighterId,
+       ),
+       _stage = stage,
+       _arrivalTime = arrivalTime,
+       _arrivalPressuresByFirefighterId = Map.unmodifiable(
+         arrivalPressuresByFirefighterId,
+       ),
+       _initialPlannedExitTime = initialPlannedExitTime,
+       _updatedPlannedExitTime =
+           currentPlannedExitTime == initialPlannedExitTime
+           ? null
+           : currentPlannedExitTime,
+       _exitStartedAt = exitStartedAt,
+       _completedAt = completedAt,
+       _travelPressure = travelPressure,
+       _exitPressure = exitPressure,
+       _workingPressure = workingPressure,
+       _workingTimeMinutes = workingTimeMinutes,
+       _controllingFirefighterId = controllingFirefighterId,
+       _currentRemainingWorkMinutes = workingTimeMinutes ?? 0,
+       _pressureChecks = List.of(pressureChecks),
+       _events = List.of(events),
+       _activeEmergency = activeEmergency;
 
   String get teamName => 'Ланка $unitName';
   ActiveTeamStage get stage => _stage;

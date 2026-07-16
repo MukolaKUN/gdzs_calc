@@ -1,14 +1,16 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:gdzs_calc/features/team/models/active_team_session.dart';
+import 'package:gdzs_calc/features/team/repositories/team_session_repository.dart';
 import 'package:gdzs_calc/features/team/widgets/pressure_check_sheet.dart';
 import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
 import 'package:gdzs_calc/shared/widgets/app_button.dart';
 
 class ActiveTeamPage extends StatefulWidget {
-  final ActiveTeamSession session;
+  final int sessionId;
+  final TeamSessionRepository? repository;
 
-  const ActiveTeamPage({super.key, required this.session});
+  const ActiveTeamPage({super.key, required this.sessionId, this.repository});
 
   @override
   State<ActiveTeamPage> createState() => _ActiveTeamPageState();
@@ -19,16 +21,35 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
   late final Timer _timer;
   bool _allowPop = false;
   bool _isEmergencyActionPending = false;
+  ActiveTeamSession? _loadedSession;
+  String? _loadError;
+  late final TeamSessionRepository _repository;
 
-  ActiveTeamSession get session => widget.session;
+  ActiveTeamSession get session => _loadedSession!;
 
   @override
   void initState() {
     super.initState();
+    _repository = widget.repository ?? const TeamSessionRepository();
     _now = DateTime.now();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _now = DateTime.now());
     });
+    _loadSession();
+  }
+
+  Future<void> _loadSession() async {
+    try {
+      final record = await _repository.getById(widget.sessionId);
+      if (!mounted) return;
+      setState(() {
+        _loadedSession = record?.session;
+        _loadError = record == null ? 'Активну ланку не знайдено.' : null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadError = 'Не вдалося завантажити активну ланку.');
+    }
   }
 
   @override
@@ -126,12 +147,15 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       reservePressure: session.reservePressure,
       workLoad: session.workLoad,
     );
-    session.confirmArrival(
+    await _repository.confirmArrival(
+      sessionId: widget.sessionId,
       arrivalTime: arrivalTime,
-      arrivalPressures: result,
+      pressures: result,
       calculation: calculation,
+      controllingFirefighterId:
+          session.participants[calculation.controllingMemberIndex].id!,
     );
-    setState(() => _now = DateTime.now());
+    if (mounted) await _loadSession();
   }
 
   Future<void> _checkPressure() async {
@@ -141,10 +165,14 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       maximums: session.latestPressuresByFirefighterId,
     );
     if (!mounted || result == null) return;
-    session.addPressureCheck(
-      PressureCheck(checkedAt: checkedAt, pressuresByFirefighterId: result),
+    await _repository.addPressureCheck(
+      sessionId: widget.sessionId,
+      checkedAt: checkedAt,
+      estimated: session.estimatedPressuresAt(checkedAt),
+      actual: result,
+      emergencyMode: false,
     );
-    setState(() => _now = DateTime.now());
+    if (mounted) await _loadSession();
   }
 
   Future<void> _startExit() async {
@@ -154,8 +182,8 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       action: 'Розпочати вихід',
     );
     if (!mounted || !confirmed) return;
-    session.startExit(at: DateTime.now());
-    setState(() => _now = DateTime.now());
+    await _repository.startExit(widget.sessionId, DateTime.now());
+    if (mounted) await _loadSession();
   }
 
   Future<void> _complete() async {
@@ -165,8 +193,12 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       action: 'Підтвердити вихід',
     );
     if (!mounted || !confirmed) return;
-    session.complete(at: DateTime.now());
-    setState(() => _now = DateTime.now());
+    await _repository.completeSession(
+      widget.sessionId,
+      DateTime.now(),
+      fromEmergency: false,
+    );
+    if (mounted) await _loadSession();
   }
 
   Future<void> _startEmergency() async {
@@ -187,12 +219,29 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
     );
     if (!mounted) return;
     if (confirmed) {
-      session.startEmergency(
+      final at = DateTime.now();
+      final communicationAvailable =
+          input.reason == EmergencyReason.communicationLost
+          ? false
+          : input.communicationAvailable;
+      final emergency = TeamEmergency(
         reason: input.reason,
-        at: DateTime.now(),
-        communicationAvailable: input.communicationAvailable,
+        startedAt: at,
+        stageAtStart: session.stage,
+        communicationAvailable: communicationAvailable,
+        lastContactAt: communicationAvailable ? at : null,
         note: input.note,
       );
+      await _repository.startEmergency(
+        widget.sessionId,
+        emergency,
+        'Причина: ${input.reason.label}.\n'
+        'Етап: ${session.stage.label}.\n'
+        'Зв’язок із ланкою '
+        '${communicationAvailable ? 'наявний' : 'відсутній'}.'
+        '${input.note == null ? '' : '\nПримітка: ${input.note}'}',
+      );
+      if (mounted) await _loadSession();
     }
     setState(() {
       _isEmergencyActionPending = false;
@@ -216,15 +265,23 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       },
     );
     if (!mounted || result == null) return;
-    session.addEmergencyPressureCheck(
-      PressureCheck(checkedAt: checkedAt, pressuresByFirefighterId: result),
+    await _repository.addPressureCheck(
+      sessionId: widget.sessionId,
+      checkedAt: checkedAt,
+      estimated: {
+        for (final entry in snapshots.entries)
+          entry.key: entry.value.estimatedPressure,
+      },
+      actual: result,
+      emergencyMode: true,
     );
-    setState(() => _now = DateTime.now());
+    if (mounted) await _loadSession();
   }
 
   Future<void> _restoreCommunication() async {
-    session.restoreEmergencyCommunication(at: DateTime.now());
-    setState(() => _now = DateTime.now());
+    await _repository.restoreCommunication(widget.sessionId, DateTime.now());
+    if (!mounted) return;
+    await _loadSession();
     await _emergencyPressureCheck();
   }
 
@@ -284,8 +341,12 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       if (!mounted || note == null || note.isEmpty) return;
       title = note;
     }
-    session.recordEmergencyAction(at: DateTime.now(), title: title);
-    setState(() => _now = DateTime.now());
+    await _repository.addEmergencyAction(
+      widget.sessionId,
+      DateTime.now(),
+      title,
+    );
+    if (mounted) await _loadSession();
   }
 
   Future<void> _resolveEmergency() async {
@@ -295,8 +356,16 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       action: 'Підтвердити',
     );
     if (!mounted || !confirmed) return;
-    session.resolveEmergency(at: DateTime.now());
-    setState(() => _now = DateTime.now());
+    final emergency = session.activeEmergency!;
+    final at = DateTime.now();
+    final duration = at.difference(emergency.startedAt);
+    await _repository.resolveEmergency(
+      widget.sessionId,
+      at,
+      'Причина: ${emergency.reason.label}. '
+      'Тривалість: ${duration.inMinutes} хв ${duration.inSeconds % 60} с.',
+    );
+    if (mounted) await _loadSession();
   }
 
   Future<void> _completeFromEmergency() async {
@@ -306,8 +375,12 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       action: 'Підтвердити вихід',
     );
     if (!mounted || !confirmed) return;
-    session.completeFromEmergency(at: DateTime.now());
-    setState(() => _now = DateTime.now());
+    await _repository.completeSession(
+      widget.sessionId,
+      DateTime.now(),
+      fromEmergency: true,
+    );
+    if (mounted) await _loadSession();
   }
 
   Widget _emergencyButton() => AppButton(
@@ -715,10 +788,7 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       _pressureList(session.latestPressuresByFirefighterId),
       _events(),
       const SizedBox(height: 16),
-      const Text(
-        'Дані ланки зберігаються лише до закриття застосунку',
-        textAlign: TextAlign.center,
-      ),
+      const Text('Дані ланки збережено', textAlign: TextAlign.center),
       const SizedBox(height: 12),
       AppButton(
         text: 'Завершити та повернутися на головну',
@@ -748,6 +818,25 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_loadedSession == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Активна ланка')),
+        body: Center(
+          child: _loadError == null
+              ? const CircularProgressIndicator()
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_loadError!),
+                    FilledButton(
+                      onPressed: _loadSession,
+                      child: const Text('Повторити'),
+                    ),
+                  ],
+                ),
+        ),
+      );
+    }
     final body = session.hasActiveEmergency
         ? _emergencyLayout()
         : switch (session.stage) {

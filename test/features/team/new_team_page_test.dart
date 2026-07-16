@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gdzs_calc/features/team/active_team_page.dart';
 import 'package:gdzs_calc/features/team/models/active_team_session.dart';
 import 'package:gdzs_calc/features/team/new_team_page.dart';
+import 'package:gdzs_calc/features/team/repositories/team_session_repository.dart';
 import 'package:gdzs_calc/shared/models/apparatus.dart';
 import 'package:gdzs_calc/shared/models/firefighter.dart';
 import 'package:gdzs_calc/shared/models/unit.dart';
@@ -13,9 +13,11 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _CreatingRepository();
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: NewTeamPage(
+          teamSessionRepository: repository,
           initialUnits: [Unit(id: 1, name: 'ДПРЧ-1', city: 'Київ')],
           initialApparatus: [
             Apparatus(
@@ -68,10 +70,9 @@ void main() {
     await tester.tap(find.text('Увімкнутися'));
     await tester.pumpAndSettle();
 
-    final page = tester.widget<ActiveTeamPage>(find.byType(ActiveTeamPage));
-    expect(page.session.stage, ActiveTeamStage.advancing);
-    expect(page.session.arrivalTime, isNull);
-    expect(page.session.inclusionTime.isBefore(before), isFalse);
+    expect(repository.session!.stage, ActiveTeamStage.advancing);
+    expect(repository.session!.arrivalTime, isNull);
+    expect(repository.session!.inclusionTime.isBefore(before), isFalse);
     expect(find.text('Час прямування'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
@@ -298,4 +299,28 @@ Future<void> _selectUnitAndApparatus(WidgetTester tester) async {
   await tester.pumpAndSettle();
   await tester.tap(find.text('Drager').last);
   await tester.pumpAndSettle();
+}
+
+class _CreatingRepository extends TeamSessionRepository {
+  ActiveTeamSession? session;
+
+  @override
+  Future<TeamSessionRecord?> getActiveSession() async => null;
+
+  @override
+  Future<int> createAdvancingSession({
+    required Unit unit,
+    required Apparatus apparatus,
+    required ActiveTeamSession session,
+  }) async {
+    this.session = session;
+    return 1;
+  }
+
+  @override
+  Future<TeamSessionRecord?> getById(int id) async => TeamSessionRecord(
+    id: id,
+    session: session!,
+    watchNumber: session!.participants.first.watchNumber,
+  );
 }
