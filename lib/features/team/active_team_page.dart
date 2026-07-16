@@ -18,6 +18,7 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
   late DateTime _now;
   late final Timer _timer;
   bool _allowPop = false;
+  bool _isEmergencyActionPending = false;
 
   ActiveTeamSession get session => widget.session;
 
@@ -168,6 +169,154 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
     setState(() => _now = DateTime.now());
   }
 
+  Future<void> _startEmergency() async {
+    if (_isEmergencyActionPending || session.hasActiveEmergency) return;
+    setState(() => _isEmergencyActionPending = true);
+    final input = await showDialog<_EmergencyInput>(
+      context: context,
+      builder: (_) => const _EmergencyFormDialog(),
+    );
+    if (!mounted || input == null) {
+      if (mounted) setState(() => _isEmergencyActionPending = false);
+      return;
+    }
+    final confirmed = await _confirm(
+      title: 'Підтвердити аварійний режим?',
+      text: 'Буде увімкнено аварійний режим та зафіксовано час події.',
+      action: 'Увімкнути',
+    );
+    if (!mounted) return;
+    if (confirmed) {
+      session.startEmergency(
+        reason: input.reason,
+        at: DateTime.now(),
+        communicationAvailable: input.communicationAvailable,
+        note: input.note,
+      );
+    }
+    setState(() {
+      _isEmergencyActionPending = false;
+      _now = DateTime.now();
+    });
+  }
+
+  Future<void> _emergencyPressureCheck() async {
+    final emergency = session.activeEmergency;
+    if (emergency == null || !emergency.communicationAvailable) return;
+    final checkedAt = DateTime.now();
+    final snapshots = session.emergencyPressureSnapshotsAt(checkedAt);
+    final result = await _openPressureSheet(
+      estimates: {
+        for (final entry in snapshots.entries)
+          entry.key: entry.value.estimatedPressure,
+      },
+      maximums: {
+        for (final entry in snapshots.entries)
+          entry.key: entry.value.confirmedPressure,
+      },
+    );
+    if (!mounted || result == null) return;
+    session.addEmergencyPressureCheck(
+      PressureCheck(checkedAt: checkedAt, pressuresByFirefighterId: result),
+    );
+    setState(() => _now = DateTime.now());
+  }
+
+  Future<void> _restoreCommunication() async {
+    session.restoreEmergencyCommunication(at: DateTime.now());
+    setState(() => _now = DateTime.now());
+    await _emergencyPressureCheck();
+  }
+
+  Future<void> _recordEmergencyAction() async {
+    const actions = [
+      'Резервну ланку направлено',
+      'Встановлено зв’язок',
+      'Шлях виходу заблоковано',
+      'Розпочато деблокування',
+      'Ланка продовжує вихід',
+      'Інша дія',
+    ];
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(title: Text('Зафіксувати дію')),
+            for (final action in actions)
+              ListTile(
+                title: Text(action),
+                onTap: () => Navigator.pop(sheetContext, action),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || selected == null) return;
+    var title = selected;
+    if (selected == 'Інша дія') {
+      final controller = TextEditingController();
+      final note = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Інша дія'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Опис дії'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Скасувати'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, controller.text.trim()),
+              child: const Text('Зберегти'),
+            ),
+          ],
+        ),
+      );
+      controller.dispose();
+      if (!mounted || note == null || note.isEmpty) return;
+      title = note;
+    }
+    session.recordEmergencyAction(at: DateTime.now(), title: title);
+    setState(() => _now = DateTime.now());
+  }
+
+  Future<void> _resolveEmergency() async {
+    final confirmed = await _confirm(
+      title: 'Надзвичайну ситуацію усунено?',
+      text: 'Аварійний режим буде завершено без зміни основного етапу.',
+      action: 'Підтвердити',
+    );
+    if (!mounted || !confirmed) return;
+    session.resolveEmergency(at: DateTime.now());
+    setState(() => _now = DateTime.now());
+  }
+
+  Future<void> _completeFromEmergency() async {
+    final confirmed = await _confirm(
+      title: 'Підтвердити вихід ланки?',
+      text: 'Ланка вийшла з НДС на свіже повітря.',
+      action: 'Підтвердити вихід',
+    );
+    if (!mounted || !confirmed) return;
+    session.completeFromEmergency(at: DateTime.now());
+    setState(() => _now = DateTime.now());
+  }
+
+  Widget _emergencyButton() => AppButton(
+    text: 'Надзвичайна ситуація',
+    onPressed: _isEmergencyActionPending ? null : _startEmergency,
+    icon: Icons.warning_amber_rounded,
+    variant: AppButtonVariant.error,
+  );
+
   Widget _heading(String text) => Padding(
     padding: const EdgeInsets.only(bottom: 12),
     child: Text(text, style: Theme.of(context).textTheme.headlineSmall),
@@ -232,7 +381,7 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
                 )
               : null,
           trailing: Text(
-            '${pressures[id]} бар',
+            '${pressures[id] ?? session.startPressuresByFirefighterId[id]} бар',
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
         );
@@ -273,6 +422,9 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
               contentPadding: EdgeInsets.zero,
               leading: Text(_clock(event.time)),
               title: Text(event.title),
+              subtitle: event.description.isEmpty
+                  ? null
+                  : Text(event.description),
             ),
           ),
     ],
@@ -310,6 +462,8 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
           'Зафіксувати тиск і розпочати роботу ланки',
           textAlign: TextAlign.center,
         ),
+        const SizedBox(height: 12),
+        _emergencyButton(),
       ],
     );
   }
@@ -349,6 +503,8 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
           icon: Icons.logout,
           variant: AppButtonVariant.warning,
         ),
+        const SizedBox(height: 12),
+        _emergencyButton(),
         const SizedBox(height: 20),
         _events(),
       ],
@@ -383,10 +539,150 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
         onPressed: _complete,
         icon: Icons.task_alt,
       ),
+      const SizedBox(height: 12),
+      _emergencyButton(),
       const SizedBox(height: 20),
       _events(),
     ],
   );
+
+  Widget _emergencyLayout() {
+    final emergency = session.activeEmergency!;
+    final snapshots = session.emergencyPressureSnapshotsAt(_now);
+    final lastContact = emergency.lastContactAt;
+    return DefaultTextStyle.merge(
+      style: const TextStyle(color: Colors.white),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'АВАРІЙНИЙ РЕЖИМ',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 30,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            color: const Color(0xFF501B20),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    emergency.reason.label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text('Ситуацію зафіксовано о ${_clock(emergency.startedAt)}'),
+                  Text('Поточний час: ${_clock(_now)}'),
+                  Text('Основний етап: ${session.stage.label}'),
+                  Text(
+                    'Зв’язок: ${emergency.communicationAvailable ? 'наявний' : 'відсутній'}',
+                  ),
+                  Text(
+                    'Останній зв’язок: '
+                    '${lastContact == null ? 'не зафіксовано' : _clock(lastContact)}',
+                  ),
+                  if (emergency.note != null)
+                    Text('Примітка: ${emergency.note}'),
+                ],
+              ),
+            ),
+          ),
+          Text('Командир: $_leaderName'),
+          Text('Апарат: ${session.apparatusName}'),
+          Text(
+            'Склад: ${session.participants.map((member) => member.fullName).join(', ')}',
+          ),
+          const SizedBox(height: 14),
+          if (!emergency.communicationAvailable)
+            Card(
+              color: const Color(0xFF7A1820),
+              child: const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'Зв’язок із ланкою відсутній. Значення тиску є лише розрахунковими',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
+          const Text(
+            'Контроль і прогноз тиску',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          ...session.participants.map((member) {
+            final snapshot = snapshots[member.id]!;
+            return Card(
+              color: const Color(0xFF302629),
+              child: ListTile(
+                title: Text(
+                  member.fullName,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                subtitle: Text(
+                  'Останній підтверджений тиск: '
+                  '${snapshot.confirmedPressure} бар о '
+                  '${_clock(snapshot.confirmedAt)}\n'
+                  'Розрахунковий тиск: ${snapshot.estimatedPressure} бар',
+                  style: const TextStyle(color: Color(0xFFB8D4E8)),
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 12),
+          if (emergency.communicationAvailable)
+            AppButton(
+              text: 'Провести контроль тиску',
+              onPressed: _emergencyPressureCheck,
+              icon: Icons.speed,
+              variant: AppButtonVariant.info,
+            )
+          else
+            AppButton(
+              text: 'Зв’язок відновлено',
+              onPressed: _restoreCommunication,
+              icon: Icons.wifi,
+              variant: AppButtonVariant.success,
+            ),
+          const SizedBox(height: 12),
+          AppButton(
+            text: 'Зафіксувати дію',
+            onPressed: _recordEmergencyAction,
+            icon: Icons.edit_note,
+            variant: AppButtonVariant.secondary,
+          ),
+          const SizedBox(height: 12),
+          AppButton(
+            text: 'Надзвичайну ситуацію усунено',
+            onPressed: _resolveEmergency,
+            icon: Icons.warning_amber_rounded,
+            variant: AppButtonVariant.warning,
+          ),
+          const SizedBox(height: 12),
+          AppButton(
+            text: 'Ланка вийшла на свіже повітря',
+            onPressed: _completeFromEmergency,
+            icon: Icons.task_alt,
+            variant: AppButtonVariant.success,
+          ),
+          const SizedBox(height: 20),
+          _events(),
+        ],
+      ),
+    );
+  }
 
   Widget _completed() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -400,8 +696,14 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('Увімкнення: ${_clock(session.inclusionTime)}'),
-              Text('Прибуття: ${_clock(session.arrivalTime!)}'),
-              Text('Початок виходу: ${_clock(session.exitStartedAt!)}'),
+              Text(
+                'Прибуття: '
+                '${session.arrivalTime == null ? 'не зафіксовано' : _clock(session.arrivalTime!)}',
+              ),
+              Text(
+                'Початок виходу: '
+                '${session.exitStartedAt == null ? 'не зафіксовано' : _clock(session.exitStartedAt!)}',
+              ),
               Text('Свіже повітря: ${_clock(session.completedAt!)}'),
               Text(
                 'Загальний час у ЗІЗОД: ${_duration(session.totalDuration!)}',
@@ -431,8 +733,12 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
 
   Future<void> _guardBack() async {
     final leave = await _confirm(
-      title: 'Ланка ще працює. Вийти з екрана?',
-      text: 'Дані цієї активної ланки буде втрачено.',
+      title: session.hasActiveEmergency
+          ? 'Аварійний режим активний. Вийти з екрана?'
+          : 'Ланка ще працює. Вийти з екрана?',
+      text: session.hasActiveEmergency
+          ? 'Вихід з екрана не змінить етап і не завершить аварію.'
+          : 'Дані цієї активної ланки буде втрачено.',
       action: 'Вийти',
     );
     if (!mounted || !leave) return;
@@ -442,23 +748,128 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
 
   @override
   Widget build(BuildContext context) {
-    final body = switch (session.stage) {
-      ActiveTeamStage.advancing => _advancing(),
-      ActiveTeamStage.working => _working(),
-      ActiveTeamStage.exiting => _exiting(),
-      ActiveTeamStage.completed => _completed(),
-    };
+    final body = session.hasActiveEmergency
+        ? _emergencyLayout()
+        : switch (session.stage) {
+            ActiveTeamStage.advancing => _advancing(),
+            ActiveTeamStage.working => _working(),
+            ActiveTeamStage.exiting => _exiting(),
+            ActiveTeamStage.completed => _completed(),
+          };
+    final emergency = session.hasActiveEmergency;
     return PopScope<void>(
       canPop: _allowPop || session.stage == ActiveTeamStage.completed,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _guardBack();
       },
       child: Scaffold(
-        appBar: AppBar(title: Text(session.teamName)),
+        backgroundColor: emergency ? const Color(0xFF211416) : null,
+        appBar: AppBar(
+          title: Text(session.teamName),
+          backgroundColor: emergency ? const Color(0xFF6D151D) : null,
+          foregroundColor: emergency ? Colors.white : null,
+        ),
         body: SafeArea(
           child: ListView(padding: const EdgeInsets.all(16), children: [body]),
         ),
       ),
+    );
+  }
+}
+
+class _EmergencyInput {
+  final EmergencyReason reason;
+  final bool communicationAvailable;
+  final String? note;
+
+  const _EmergencyInput({
+    required this.reason,
+    required this.communicationAvailable,
+    this.note,
+  });
+}
+
+class _EmergencyFormDialog extends StatefulWidget {
+  const _EmergencyFormDialog();
+
+  @override
+  State<_EmergencyFormDialog> createState() => _EmergencyFormDialogState();
+}
+
+class _EmergencyFormDialogState extends State<_EmergencyFormDialog> {
+  final _noteController = TextEditingController();
+  EmergencyReason _reason = EmergencyReason.communicationLost;
+  bool _communicationAvailable = false;
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Зафіксувати надзвичайну ситуацію'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<EmergencyReason>(
+              initialValue: _reason,
+              decoration: const InputDecoration(labelText: 'Причина'),
+              items: [
+                for (final reason in EmergencyReason.values)
+                  DropdownMenuItem(value: reason, child: Text(reason.label)),
+              ],
+              onChanged: (reason) {
+                if (reason == null) return;
+                setState(() {
+                  _reason = reason;
+                  if (reason == EmergencyReason.communicationLost) {
+                    _communicationAvailable = false;
+                  }
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _noteController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Примітка (необов’язково)',
+              ),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Зв’язок із ланкою наявний'),
+              value: _communicationAvailable,
+              onChanged: (value) {
+                setState(() => _communicationAvailable = value);
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Скасувати'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(
+            context,
+            _EmergencyInput(
+              reason: _reason,
+              communicationAvailable: _communicationAvailable,
+              note: _noteController.text.trim().isEmpty
+                  ? null
+                  : _noteController.text.trim(),
+            ),
+          ),
+          child: const Text('Далі'),
+        ),
+      ],
     );
   }
 }

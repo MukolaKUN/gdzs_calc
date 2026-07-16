@@ -3,6 +3,69 @@ import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
 
 enum ActiveTeamStage { advancing, working, exiting, completed }
 
+enum EmergencyReason {
+  communicationLost,
+  collapseOrBlockedRoute,
+  mayday,
+  breathingApparatusFailure,
+  firefighterInjury,
+  disorientation,
+  other,
+}
+
+extension EmergencyReasonLabel on EmergencyReason {
+  String get label => switch (this) {
+    EmergencyReason.communicationLost => 'Втрачено зв’язок',
+    EmergencyReason.collapseOrBlockedRoute => 'Завал або заблокований шлях',
+    EmergencyReason.mayday => 'Сигнал MAYDAY',
+    EmergencyReason.breathingApparatusFailure => 'Несправність апарата',
+    EmergencyReason.firefighterInjury => 'Травмування газодимозахисника',
+    EmergencyReason.disorientation => 'Втрата орієнтування',
+    EmergencyReason.other => 'Інша причина',
+  };
+}
+
+extension ActiveTeamStageLabel on ActiveTeamStage {
+  String get label => switch (this) {
+    ActiveTeamStage.advancing => 'прямування',
+    ActiveTeamStage.working => 'робота',
+    ActiveTeamStage.exiting => 'вихід із НДС',
+    ActiveTeamStage.completed => 'завершено',
+  };
+}
+
+class TeamEmergency {
+  final EmergencyReason reason;
+  final DateTime startedAt;
+  final ActiveTeamStage stageAtStart;
+  bool communicationAvailable;
+  DateTime? lastContactAt;
+  final String? note;
+  DateTime? resolvedAt;
+
+  TeamEmergency({
+    required this.reason,
+    required this.startedAt,
+    required this.stageAtStart,
+    required this.communicationAvailable,
+    required this.lastContactAt,
+    this.note,
+    this.resolvedAt,
+  });
+}
+
+class EmergencyPressureSnapshot {
+  final int confirmedPressure;
+  final DateTime confirmedAt;
+  final int estimatedPressure;
+
+  const EmergencyPressureSnapshot({
+    required this.confirmedPressure,
+    required this.confirmedAt,
+    required this.estimatedPressure,
+  });
+}
+
 class PressureCheck {
   final DateTime checkedAt;
   final Map<int, int> pressuresByFirefighterId;
@@ -52,6 +115,7 @@ class ActiveTeamSession {
   int _currentRemainingWorkMinutes;
   final List<PressureCheck> _pressureChecks;
   final List<ActiveTeamEvent> _events;
+  TeamEmergency? _activeEmergency;
 
   ActiveTeamSession.advancing({
     required this.unitName,
@@ -83,7 +147,8 @@ class ActiveTeamSession {
        _controllingFirefighterId = null,
        _currentRemainingWorkMinutes = 0,
        _pressureChecks = [],
-       _events = List.of(events);
+       _events = List.of(events),
+       _activeEmergency = null;
 
   String get teamName => 'Ланка $unitName';
   ActiveTeamStage get stage => _stage;
@@ -103,6 +168,8 @@ class ActiveTeamSession {
       Map.unmodifiable(_arrivalPressuresByFirefighterId);
   List<PressureCheck> get pressureChecks => List.unmodifiable(_pressureChecks);
   List<ActiveTeamEvent> get events => List.unmodifiable(_events);
+  TeamEmergency? get activeEmergency => _activeEmergency;
+  bool get hasActiveEmergency => _activeEmergency != null;
 
   Duration advancingDurationAt(DateTime now) {
     final duration = now.difference(inclusionTime);
@@ -198,6 +265,43 @@ class ActiveTeamSession {
     return Map.unmodifiable(estimates);
   }
 
+  Map<int, EmergencyPressureSnapshot> emergencyPressureSnapshotsAt(
+    DateTime now,
+  ) {
+    final snapshots = <int, EmergencyPressureSnapshot>{};
+    for (final participant in participants) {
+      final id = participant.id;
+      if (id == null) continue;
+      var confirmedPressure = startPressuresByFirefighterId[id]!;
+      var confirmedAt = inclusionTime;
+      final arrivalPressure = _arrivalPressuresByFirefighterId[id];
+      if (arrivalPressure != null && _arrivalTime != null) {
+        confirmedPressure = arrivalPressure;
+        confirmedAt = _arrivalTime!;
+      }
+      for (final check in _pressureChecks) {
+        final pressure = check.pressuresByFirefighterId[id];
+        if (pressure != null) {
+          confirmedPressure = pressure;
+          confirmedAt = check.checkedAt;
+        }
+      }
+      snapshots[id] = EmergencyPressureSnapshot(
+        confirmedPressure: confirmedPressure,
+        confirmedAt: confirmedAt,
+        estimatedPressure:
+            GdzsCalculator.calculateEstimatedPressureAfterElapsed(
+              basePressure: confirmedPressure,
+              elapsed: now.difference(confirmedAt),
+              cylinderVolume: cylinderVolume,
+              cylindersCount: cylindersCount,
+              workLoad: workLoad,
+            ),
+      );
+    }
+    return Map.unmodifiable(snapshots);
+  }
+
   void addPressureCheck(PressureCheck check) {
     if (_stage != ActiveTeamStage.working &&
         _stage != ActiveTeamStage.exiting) {
@@ -253,6 +357,115 @@ class ActiveTeamSession {
     _events.add(
       ActiveTeamEvent(time: at, title: 'Ланка розпочала вихід із НДС'),
     );
+  }
+
+  void startEmergency({
+    required EmergencyReason reason,
+    required DateTime at,
+    required bool communicationAvailable,
+    String? note,
+  }) {
+    if (_stage == ActiveTeamStage.completed || hasActiveEmergency) {
+      throw StateError('Аварійний режим недоступний у поточному стані.');
+    }
+    final hasCommunication = reason == EmergencyReason.communicationLost
+        ? false
+        : communicationAvailable;
+    _activeEmergency = TeamEmergency(
+      reason: reason,
+      startedAt: at,
+      stageAtStart: _stage,
+      communicationAvailable: hasCommunication,
+      lastContactAt: hasCommunication ? at : null,
+      note: note?.trim().isEmpty ?? true ? null : note!.trim(),
+    );
+    final emergency = _activeEmergency!;
+    final noteText = emergency.note == null
+        ? ''
+        : '\nПримітка: ${emergency.note}';
+    _events.add(
+      ActiveTeamEvent(
+        time: at,
+        title: 'Увімкнено аварійний режим',
+        description:
+            'Причина: ${reason.label}.\n'
+            'Етап: ${_stage.label}.\n'
+            'Зв’язок із ланкою '
+            '${hasCommunication ? 'наявний' : 'відсутній'}.$noteText',
+      ),
+    );
+  }
+
+  void restoreEmergencyCommunication({required DateTime at}) {
+    final emergency = _activeEmergency;
+    if (emergency == null) throw StateError('Аварійний режим не активний.');
+    emergency.communicationAvailable = true;
+    emergency.lastContactAt = at;
+    _events.add(
+      ActiveTeamEvent(time: at, title: 'Зв’язок із ланкою відновлено'),
+    );
+  }
+
+  void addEmergencyPressureCheck(PressureCheck check) {
+    final emergency = _activeEmergency;
+    if (emergency == null || !emergency.communicationAvailable) {
+      throw StateError('Фактичний контроль без зв’язку заборонено.');
+    }
+    if (_stage == ActiveTeamStage.advancing) {
+      _pressureChecks.add(check);
+    } else {
+      addPressureCheck(check);
+    }
+    emergency.lastContactAt = check.checkedAt;
+    _events.add(
+      ActiveTeamEvent(
+        time: check.checkedAt,
+        title: 'Проведено контроль тиску в аварійному режимі',
+      ),
+    );
+  }
+
+  void recordEmergencyAction({required DateTime at, required String title}) {
+    if (!hasActiveEmergency) throw StateError('Аварійний режим не активний.');
+    _events.add(ActiveTeamEvent(time: at, title: title));
+  }
+
+  void resolveEmergency({required DateTime at}) {
+    final emergency = _activeEmergency;
+    if (emergency == null) throw StateError('Аварійний режим не активний.');
+    emergency.resolvedAt = at;
+    final duration = at.difference(emergency.startedAt);
+    _events.add(
+      ActiveTeamEvent(
+        time: at,
+        title: 'Аварійний режим завершено',
+        description:
+            'Причина: ${emergency.reason.label}. '
+            'Тривалість: ${duration.inMinutes} хв ${duration.inSeconds % 60} с.',
+      ),
+    );
+    _activeEmergency = null;
+  }
+
+  void completeFromEmergency({required DateTime at}) {
+    final emergency = _activeEmergency;
+    if (emergency == null || _stage == ActiveTeamStage.completed) {
+      throw StateError('Аварійний режим не активний.');
+    }
+    emergency.resolvedAt = at;
+    _stage = ActiveTeamStage.completed;
+    _completedAt = at;
+    _events.add(
+      ActiveTeamEvent(time: at, title: 'Ланка вийшла на свіже повітря'),
+    );
+    _events.add(
+      ActiveTeamEvent(
+        time: at,
+        title: 'Аварійний режим завершено виходом ланки',
+        description: 'Причина: ${emergency.reason.label}.',
+      ),
+    );
+    _activeEmergency = null;
   }
 
   void complete({required DateTime at}) {

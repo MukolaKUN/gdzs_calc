@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_sizes.dart';
 
-enum AppButtonVariant { primary, info, warning, error, secondary }
+enum AppButtonVariant { primary, info, success, warning, error, secondary }
 
 class AppButton extends StatelessWidget {
   final String text;
@@ -22,6 +22,7 @@ class AppButton extends StatelessWidget {
     return switch (variant) {
       AppButtonVariant.primary => (colorScheme.primary, colorScheme.onPrimary),
       AppButtonVariant.info => (colorScheme.secondary, colorScheme.onSecondary),
+      AppButtonVariant.success => (AppColors.success, Colors.white),
       AppButtonVariant.warning => (AppColors.warning, Colors.black),
       AppButtonVariant.error => (colorScheme.error, colorScheme.onError),
       AppButtonVariant.secondary => (

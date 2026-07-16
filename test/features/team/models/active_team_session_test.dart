@@ -111,6 +111,147 @@ void main() {
       );
     });
   });
+
+  group('ActiveTeamSession emergency mode', () {
+    test('can start on advancing without changing the stage', () {
+      final session = _advancing(DateTime(2026, 7, 16, 10));
+      session.startEmergency(
+        reason: EmergencyReason.communicationLost,
+        at: DateTime(2026, 7, 16, 10, 1),
+        communicationAvailable: true,
+      );
+
+      expect(session.stage, ActiveTeamStage.advancing);
+      expect(session.hasActiveEmergency, isTrue);
+      expect(session.activeEmergency!.communicationAvailable, isFalse);
+    });
+
+    test('can start on working and resolve to the same stage', () {
+      final session = _working();
+      final startedAt = DateTime(2026, 7, 16, 10, 10);
+      session.startEmergency(
+        reason: EmergencyReason.mayday,
+        at: startedAt,
+        communicationAvailable: true,
+      );
+      expect(session.stage, ActiveTeamStage.working);
+
+      session.resolveEmergency(at: startedAt.add(const Duration(minutes: 3)));
+      expect(session.stage, ActiveTeamStage.working);
+      expect(session.hasActiveEmergency, isFalse);
+    });
+
+    test('can start on exiting and never returns to working', () {
+      final session = _working();
+      session.startExit(at: DateTime(2026, 7, 16, 10, 10));
+      session.startEmergency(
+        reason: EmergencyReason.collapseOrBlockedRoute,
+        at: DateTime(2026, 7, 16, 10, 11),
+        communicationAvailable: true,
+      );
+      expect(session.activeEmergency!.stageAtStart, ActiveTeamStage.exiting);
+
+      session.resolveEmergency(at: DateTime(2026, 7, 16, 10, 12));
+      expect(session.stage, ActiveTeamStage.exiting);
+    });
+
+    test('restoring communication updates last contact and event log', () {
+      final session = _advancing(DateTime(2026, 7, 16, 10));
+      session.startEmergency(
+        reason: EmergencyReason.communicationLost,
+        at: DateTime(2026, 7, 16, 10, 1),
+        communicationAvailable: false,
+      );
+      final restoredAt = DateTime(2026, 7, 16, 10, 2);
+      session.restoreEmergencyCommunication(at: restoredAt);
+
+      expect(session.activeEmergency!.communicationAvailable, isTrue);
+      expect(session.activeEmergency!.lastContactAt, restoredAt);
+      expect(
+        session.events.map((event) => event.title),
+        contains('Зв’язок із ланкою відновлено'),
+      );
+    });
+
+    test('emergency pressure control records actual values and contact', () {
+      final session = _working();
+      session.startEmergency(
+        reason: EmergencyReason.firefighterInjury,
+        at: DateTime(2026, 7, 16, 10, 8),
+        communicationAvailable: true,
+      );
+      final checkedAt = DateTime(2026, 7, 16, 10, 9);
+      session.addEmergencyPressureCheck(
+        PressureCheck(
+          checkedAt: checkedAt,
+          pressuresByFirefighterId: const {1: 230, 2: 220},
+        ),
+      );
+
+      expect(session.latestPressuresByFirefighterId, {1: 230, 2: 220});
+      expect(session.activeEmergency!.lastContactAt, checkedAt);
+      expect(
+        session.events.map((event) => event.title),
+        contains('Проведено контроль тиску в аварійному режимі'),
+      );
+    });
+
+    test('actual pressure control is rejected while communication is lost', () {
+      final session = _working();
+      session.startEmergency(
+        reason: EmergencyReason.communicationLost,
+        at: DateTime(2026, 7, 16, 10, 8),
+        communicationAvailable: false,
+      );
+
+      expect(
+        () => session.addEmergencyPressureCheck(
+          PressureCheck(
+            checkedAt: DateTime(2026, 7, 16, 10, 9),
+            pressuresByFirefighterId: const {1: 230, 2: 220},
+          ),
+        ),
+        throwsStateError,
+      );
+      expect(session.pressureChecks, isEmpty);
+    });
+
+    test('completion resolves emergency and writes both events', () {
+      final session = _working();
+      session.startEmergency(
+        reason: EmergencyReason.disorientation,
+        at: DateTime(2026, 7, 16, 10, 8),
+        communicationAvailable: true,
+      );
+      session.completeFromEmergency(at: DateTime(2026, 7, 16, 10, 12));
+
+      expect(session.stage, ActiveTeamStage.completed);
+      expect(session.hasActiveEmergency, isFalse);
+      expect(
+        session.events.map((event) => event.title),
+        containsAll([
+          'Ланка вийшла на свіже повітря',
+          'Аварійний режим завершено виходом ланки',
+        ]),
+      );
+    });
+
+    test('emergency activation event contains operational details', () {
+      final session = _working();
+      session.startEmergency(
+        reason: EmergencyReason.breathingApparatusFailure,
+        at: DateTime(2026, 7, 16, 10, 8),
+        communicationAvailable: true,
+        note: 'Другий номер',
+      );
+
+      final event = session.events.last;
+      expect(event.title, 'Увімкнено аварійний режим');
+      expect(event.description, contains('Етап: робота'));
+      expect(event.description, contains('Зв’язок із ланкою наявний'));
+      expect(event.description, contains('Другий номер'));
+    });
+  });
 }
 
 const _members = [
