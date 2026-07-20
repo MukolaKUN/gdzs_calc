@@ -38,6 +38,53 @@ void main() {
     expect(sound.value, isFalse);
     expect(find.text('Попередження про вихід'), findsOneWidget);
   });
+
+  testWidgets('test notification uses pressure reminder channel', (
+    tester,
+  ) async {
+    final gateway = _SettingsGateway();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsPage(
+          warningSettingsRepository: _MemorySettingsRepository(),
+          notificationGateway: gateway,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Перевірити сповіщення'));
+    await tester.pumpAndSettle();
+    expect(gateway.shownTitle, 'Тестове сповіщення GDZS');
+    expect(gateway.shownBody, 'Системні сповіщення працюють');
+    expect(
+      gateway.shownChannel,
+      NotificationChannelKind.pressureControlReminder,
+    );
+    expect(find.text('Тестове сповіщення надіслано'), findsOneWidget);
+  });
+
+  testWidgets('test notification reports no success without permission', (
+    tester,
+  ) async {
+    final gateway = _SettingsGateway(enabled: false, permissionGranted: false);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsPage(
+          warningSettingsRepository: _MemorySettingsRepository(),
+          notificationGateway: gateway,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Сповіщення заборонені в налаштуваннях Android'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Перевірити сповіщення'));
+    await tester.pumpAndSettle();
+    expect(gateway.shownTitle, isNull);
+    expect(find.text('Тестове сповіщення надіслано'), findsNothing);
+  });
 }
 
 class _MemorySettingsRepository extends ExitWarningSettingsRepository {
@@ -51,6 +98,12 @@ class _MemorySettingsRepository extends ExitWarningSettingsRepository {
 }
 
 class _SettingsGateway implements NotificationGateway {
+  bool enabled;
+  final bool permissionGranted;
+  String? shownTitle;
+  String? shownBody;
+  NotificationChannelKind? shownChannel;
+  _SettingsGateway({this.enabled = true, this.permissionGranted = true});
   @override
   Future<bool> canScheduleExactAlarms() async => false;
   @override
@@ -62,9 +115,13 @@ class _SettingsGateway implements NotificationGateway {
   @override
   Future<void> initialize() async {}
   @override
-  Future<bool> notificationsEnabled() async => true;
+  Future<bool> notificationsEnabled() async => enabled;
   @override
-  Future<bool> requestPermission() async => true;
+  Future<bool> requestPermission() async {
+    enabled = permissionGranted;
+    return permissionGranted;
+  }
+
   @override
   Future<void> schedule({
     required int id,
@@ -85,5 +142,13 @@ class _SettingsGateway implements NotificationGateway {
     required String payload,
     required bool sound,
     required bool vibration,
-  }) async {}
+    NotificationChannelKind channel = NotificationChannelKind.exitWarning,
+  }) async {
+    shownTitle = title;
+    shownBody = body;
+    shownChannel = channel;
+  }
+
+  @override
+  Future<List<PendingNotificationInfo>> pendingNotifications() async => [];
 }

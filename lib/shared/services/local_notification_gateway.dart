@@ -190,11 +190,16 @@ class LocalNotificationGateway implements NotificationGateway {
     required String payload,
     required bool sound,
     required bool vibration,
+    NotificationChannelKind channel = NotificationChannelKind.exitWarning,
   }) => _plugin.show(
     id: id,
     title: title,
     body: body,
-    notificationDetails: _details(sound: sound, vibration: vibration),
+    notificationDetails: _details(
+      sound: sound,
+      vibration: vibration,
+      channel: channel,
+    ),
     payload: payload,
   );
 
@@ -209,6 +214,18 @@ class LocalNotificationGateway implements NotificationGateway {
         await cancel(notification.id);
       }
     }
+  }
+
+  @override
+  Future<List<PendingNotificationInfo>> pendingNotifications() async {
+    final pending = await _plugin.pendingNotificationRequests();
+    return [
+      for (final notification in pending)
+        PendingNotificationInfo(
+          id: notification.id,
+          payload: notification.payload,
+        ),
+    ];
   }
 
   @override

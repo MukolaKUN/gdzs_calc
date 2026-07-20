@@ -206,7 +206,11 @@ class _FakeGateway implements NotificationGateway {
     required String payload,
     required bool sound,
     required bool vibration,
+    NotificationChannelKind channel = NotificationChannelKind.exitWarning,
   }) async {
     shown.add(id);
   }
+
+  @override
+  Future<List<PendingNotificationInfo>> pendingNotifications() async => [];
 }

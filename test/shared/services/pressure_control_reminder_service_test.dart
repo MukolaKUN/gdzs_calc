@@ -147,6 +147,20 @@ void main() {
     expect(gateway.pending, isEmpty);
   });
 
+  test('exact unavailable schedules through inexact fallback', () async {
+    final gateway = _Gateway(exactAvailable: false);
+    await PressureControlReminderService(
+      gateway,
+      now: () => inclusion,
+    ).synchronize(
+      sessionId: 7,
+      inclusionTime: inclusion,
+      stage: ActiveTeamStage.working,
+      notificationsEnabled: true,
+    );
+    expect(gateway.pending.values.every((item) => !item.exact), isTrue);
+  });
+
   test('cancelAll removes reminders when there is no active session', () async {
     final gateway = _Gateway();
     final service = PressureControlReminderService(
@@ -176,15 +190,24 @@ class _Item {
   final String body;
   final String payload;
   final NotificationChannelKind channel;
-  const _Item(this.at, this.title, this.body, this.payload, this.channel);
+  final bool exact;
+  const _Item(
+    this.at,
+    this.title,
+    this.body,
+    this.payload,
+    this.channel,
+    this.exact,
+  );
 }
 
 class _Gateway implements NotificationGateway {
   final bool enabled;
+  final bool exactAvailable;
   final Map<int, _Item> pending = {};
-  _Gateway({this.enabled = true});
+  _Gateway({this.enabled = true, this.exactAvailable = true});
   @override
-  Future<bool> canScheduleExactAlarms() async => true;
+  Future<bool> canScheduleExactAlarms() async => exactAvailable;
   @override
   Future<void> cancel(int id) async => pending.remove(id);
   @override
@@ -209,7 +232,7 @@ class _Gateway implements NotificationGateway {
     required bool exact,
     NotificationChannelKind channel = NotificationChannelKind.exitWarning,
   }) async {
-    pending[id] = _Item(at, title, body, payload, channel);
+    pending[id] = _Item(at, title, body, payload, channel, exact);
   }
 
   @override
@@ -220,5 +243,11 @@ class _Gateway implements NotificationGateway {
     required String payload,
     required bool sound,
     required bool vibration,
+    NotificationChannelKind channel = NotificationChannelKind.exitWarning,
   }) async {}
+  @override
+  Future<List<PendingNotificationInfo>> pendingNotifications() async => [
+    for (final entry in pending.entries)
+      PendingNotificationInfo(id: entry.key, payload: entry.value.payload),
+  ];
 }

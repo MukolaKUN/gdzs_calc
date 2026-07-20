@@ -6,6 +6,7 @@ import 'package:gdzs_calc/features/units/units_page.dart';
 import 'package:gdzs_calc/shared/models/exit_warning_settings.dart';
 import 'package:gdzs_calc/shared/repositories/exit_warning_settings_repository.dart';
 import 'package:gdzs_calc/shared/services/exit_warning_service.dart';
+import 'package:gdzs_calc/shared/services/pressure_control_reminder_service.dart';
 
 class SettingsPage extends StatefulWidget {
   final ExitWarningSettingsRepository? warningSettingsRepository;
@@ -26,6 +27,7 @@ class _SettingsPageState extends State<SettingsPage> {
   NotificationGateway? _gateway;
   ExitWarningSettings? _settings;
   bool _exactAvailable = false;
+  bool _notificationsEnabled = false;
 
   @override
   void initState() {
@@ -42,11 +44,42 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _load() async {
     final settings = await _repository.load();
     final exact = await _gateway?.canScheduleExactAlarms() ?? false;
+    final enabled = await _gateway?.notificationsEnabled() ?? false;
     if (!mounted) return;
     setState(() {
       _settings = settings;
       _exactAvailable = exact;
+      _notificationsEnabled = enabled;
     });
+  }
+
+  Future<void> _testNotification() async {
+    final gateway = _gateway;
+    if (gateway == null) return;
+    var enabled = await gateway.notificationsEnabled();
+    if (!enabled) {
+      final granted = await gateway.requestPermission();
+      enabled = granted && await gateway.notificationsEnabled();
+      if (mounted) setState(() => _notificationsEnabled = enabled);
+    }
+    if (!mounted || !enabled) return;
+    try {
+      await gateway.showNow(
+        id: PressureControlReminderService.notificationId(0, 0),
+        title: 'Тестове сповіщення GDZS',
+        body: 'Системні сповіщення працюють',
+        payload: 'pressureControlReminder:0',
+        sound: _settings!.sound,
+        vibration: _settings!.vibration,
+        channel: NotificationChannelKind.pressureControlReminder,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Тестове сповіщення надіслано')),
+      );
+    } catch (_) {
+      // Платформна помилка не повинна показувати хибне повідомлення про успіх.
+    }
   }
 
   Future<void> _update(ExitWarningSettings value) async {
@@ -122,6 +155,32 @@ class _SettingsPageState extends State<SettingsPage> {
               onChanged: (value) =>
                   _update(settings.copyWith(systemNotifications: value)),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _testNotification,
+                  icon: const Icon(Icons.notifications_active_outlined),
+                  label: const Text('Перевірити сповіщення'),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Text(
+                _notificationsEnabled
+                    ? 'Системні сповіщення дозволені'
+                    : 'Сповіщення заборонені в налаштуваннях Android',
+              ),
+            ),
+            if (!_exactAvailable)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
+                child: Text(
+                  'Точні нагадування недоступні — використовується приблизний час',
+                ),
+              ),
             SwitchListTile(
               title: const Text('Контроль тиску кожні 10 хвилин'),
               subtitle: const Text(
@@ -160,13 +219,6 @@ class _SettingsPageState extends State<SettingsPage> {
               onChanged: (value) =>
                   _update(settings.copyWith(oneMinute: value)),
             ),
-            if (!_exactAvailable)
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 4, 16, 10),
-                child: Text(
-                  'Фонові сповіщення можуть спрацьовувати з невеликою затримкою',
-                ),
-              ),
           ],
         ),
       ),

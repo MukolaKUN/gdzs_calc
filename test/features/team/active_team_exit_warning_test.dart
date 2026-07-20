@@ -205,6 +205,7 @@ class _WarningRepository extends TeamSessionRepository {
 class _FakeSettingsRepository extends ExitWarningSettingsRepository {
   ExitWarningSettings value = const ExitWarningSettings(
     permissionPrompted: true,
+    pressureControlReminders: false,
   );
 
   @override
@@ -260,5 +261,8 @@ class _FakeNotificationGateway implements NotificationGateway {
     required String payload,
     required bool sound,
     required bool vibration,
+    NotificationChannelKind channel = NotificationChannelKind.exitWarning,
   }) async {}
+  @override
+  Future<List<PendingNotificationInfo>> pendingNotifications() async => [];
 }

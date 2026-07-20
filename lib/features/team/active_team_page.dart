@@ -60,8 +60,8 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
   bool _exactWarningsAvailable = false;
   bool _permissionDialogPending = false;
   bool _reminderInitialized = false;
-  int _lastReminderInterval = 0;
   int? _visibleReminderInterval;
+  int? _dismissedPressureReminderInterval;
 
   ActiveTeamSession get session => _loadedSession!;
   DateTime get _currentTime => widget.now?.call() ?? DateTime.now();
@@ -107,6 +107,9 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
         _loadError = record == null ? 'Активну ланку не знайдено.' : null;
         _now = _currentTime;
       });
+      if (record != null && _reminderInitialized) {
+        _processPressureReminderBoundary();
+      }
       if (record != null) await _synchronizeExitWarnings();
     } catch (_) {
       if (!mounted) return;
@@ -223,39 +226,36 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
 
   void _processPressureReminderBoundary() {
     if (!mounted || _loadedSession == null || !_reminderInitialized) return;
-    if (session.stage == ActiveTeamStage.completed ||
-        !_warningSettings.pressureControlReminders) {
-      if (_visibleReminderInterval != null) {
-        setState(() => _visibleReminderInterval = null);
-      }
-      return;
-    }
     final completed =
         PressureControlReminderService.completedTenMinuteIntervals(
           inclusionTime: session.inclusionTime,
           now: _now,
         );
-    if (completed <= _lastReminderInterval) return;
-    _lastReminderInterval = completed;
+    final currentBoundary = session.inclusionTime.add(
+      PressureControlReminderService.interval * completed,
+    );
+    final latestCheck = session.latestPressureCheck;
+    final intervalHandled =
+        latestCheck != null && !latestCheck.checkedAt.isBefore(currentBoundary);
+    final shouldShow =
+        completed > 0 &&
+        session.stage != ActiveTeamStage.completed &&
+        _warningSettings.pressureControlReminders &&
+        !intervalHandled &&
+        _dismissedPressureReminderInterval != completed;
+    if (!shouldShow) {
+      if (_visibleReminderInterval != null) {
+        setState(() => _visibleReminderInterval = null);
+      }
+      return;
+    }
+    if (_visibleReminderInterval == completed) return;
     setState(() => _visibleReminderInterval = completed);
     unawaited(_hapticGateway.heavyImpact());
   }
 
   void _initializePressureReminderTracking() {
     if (_reminderInitialized) return;
-    final completed =
-        PressureControlReminderService.completedTenMinuteIntervals(
-          inclusionTime: session.inclusionTime,
-          now: _now,
-        );
-    final elapsed = _now.difference(session.inclusionTime);
-    _lastReminderInterval =
-        elapsed.inSeconds > 0 &&
-            elapsed.inSeconds %
-                    PressureControlReminderService.interval.inSeconds ==
-                0
-        ? completed - 1
-        : completed;
     _reminderInitialized = true;
   }
 
@@ -394,7 +394,7 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
   }
 
   Future<void> _checkPressure() async {
-    final checkedAt = DateTime.now();
+    final checkedAt = _currentTime;
     final result = await _openPressureSheet(
       estimates: session.estimatedPressuresAt(checkedAt),
       maximums: session.latestPressuresByFirefighterId,
@@ -407,7 +407,10 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       actual: result,
       emergencyMode: false,
     );
-    if (mounted) await _loadSession();
+    if (mounted) {
+      await _loadSession();
+      if (mounted) setState(() => _visibleReminderInterval = null);
+    }
   }
 
   Future<void> _checkPressureFromReminder() async {
@@ -431,7 +434,10 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
         actual: result,
         emergencyMode: false,
       );
-      if (mounted) await _loadSession();
+      if (mounted) {
+        await _loadSession();
+        if (mounted) setState(() => _visibleReminderInterval = null);
+      }
       return;
     }
     await _checkPressure();
@@ -700,8 +706,10 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
                 ),
                 IconButton(
                   tooltip: 'Закрити',
-                  onPressed: () =>
-                      setState(() => _visibleReminderInterval = null),
+                  onPressed: () => setState(() {
+                    _dismissedPressureReminderInterval = intervalNumber;
+                    _visibleReminderInterval = null;
+                  }),
                   icon: const Icon(Icons.close),
                 ),
               ],

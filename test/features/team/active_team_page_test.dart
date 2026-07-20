@@ -9,6 +9,7 @@ import 'package:gdzs_calc/shared/models/exit_warning_settings.dart';
 import 'package:gdzs_calc/shared/repositories/exit_warning_settings_repository.dart';
 import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
 import 'package:gdzs_calc/shared/services/haptic_gateway.dart';
+import 'package:gdzs_calc/shared/services/pressure_control_reminder_service.dart';
 
 void main() {
   testWidgets('emergency reason dropdown fits a narrow screen', (tester) async {
@@ -98,6 +99,55 @@ void main() {
     );
     expect(find.textContaining('Контроль №2'), findsOneWidget);
     expect(haptic.heavyCount, 2);
+  });
+
+  testWidgets('confirmed pressure check handles only the current interval', (
+    tester,
+  ) async {
+    _setLargeView(tester);
+    final inclusion = DateTime(2026, 7, 20, 15, 10);
+    var clock = inclusion.add(const Duration(minutes: 10));
+    final session = _workingSession(inclusion);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ActiveTeamPage(
+          sessionId: 1,
+          repository: _MemoryRepository(session),
+          now: () => clock,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('pressure-control-reminder-banner')),
+      findsOneWidget,
+    );
+
+    clock = inclusion.add(const Duration(minutes: 12));
+    await tester.tap(find.text('Провести контроль'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Підтвердити замір'));
+    await tester.pumpAndSettle();
+    expect(session.latestPressureCheck?.checkedAt, clock);
+    expect(
+      find.byKey(const Key('pressure-control-reminder-banner')),
+      findsNothing,
+    );
+    expect(
+      PressureControlReminderService.nextReminderTime(
+        inclusionTime: inclusion,
+        now: clock,
+      ),
+      inclusion.add(const Duration(minutes: 20)),
+    );
+
+    clock = inclusion.add(const Duration(minutes: 20));
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      find.byKey(const Key('pressure-control-reminder-banner')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Контроль №2'), findsOneWidget);
   });
 
   testWidgets('disabled pressure reminders hide banner and haptic', (
@@ -418,6 +468,27 @@ ActiveTeamSession _session({DateTime? inclusionTime}) {
       ActiveTeamEvent(time: inclusion, title: 'Ланка увімкнулася в ЗІЗОД'),
     ],
   );
+}
+
+ActiveTeamSession _workingSession(DateTime inclusion) {
+  final session = _session(inclusionTime: inclusion);
+  final arrival = inclusion.add(const Duration(minutes: 5));
+  const pressures = {1: 270, 2: 265};
+  session.confirmArrival(
+    arrivalTime: arrival,
+    arrivalPressures: pressures,
+    calculation: GdzsCalculator.calculateCompressedAir(
+      startPressures: const [300, 295],
+      arrivalPressures: const [270, 265],
+      inclusionTime: inclusion,
+      arrivalTime: arrival,
+      cylinderVolume: session.cylinderVolume,
+      cylindersCount: session.cylindersCount,
+      reservePressure: session.reservePressure,
+      workLoad: session.workLoad,
+    ),
+  );
+  return session;
 }
 
 class _ReminderHaptic implements HapticGateway {
