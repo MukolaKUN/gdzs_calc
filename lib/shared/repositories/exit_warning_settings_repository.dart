@@ -28,6 +28,7 @@ class ExitWarningSettingsRepository {
       twoMinutes: flag('exit_warning_two_minutes'),
       oneMinute: flag('exit_warning_one_minute'),
       permissionPrompted: values['exit_warning_permission_prompted'] == '1',
+      pressureControlReminders: flag('exit_warning_pressure_control'),
     );
   }
 
@@ -42,6 +43,7 @@ class ExitWarningSettingsRepository {
         'exit_warning_two_minutes': settings.twoMinutes,
         'exit_warning_one_minute': settings.oneMinute,
         'exit_warning_permission_prompted': settings.permissionPrompted,
+        'exit_warning_pressure_control': settings.pressureControlReminders,
       };
       for (final entry in values.entries) {
         await txn.insert('app_settings', {

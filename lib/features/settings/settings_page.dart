@@ -123,6 +123,15 @@ class _SettingsPageState extends State<SettingsPage> {
                   _update(settings.copyWith(systemNotifications: value)),
             ),
             SwitchListTile(
+              title: const Text('Контроль тиску кожні 10 хвилин'),
+              subtitle: const Text(
+                'Нагадувати постовому про перевірку зв’язку та фактичного тиску ланки',
+              ),
+              value: settings.pressureControlReminders,
+              onChanged: (value) =>
+                  _update(settings.copyWith(pressureControlReminders: value)),
+            ),
+            SwitchListTile(
               title: const Text('Звук'),
               value: settings.sound,
               onChanged: (value) => _update(settings.copyWith(sound: value)),

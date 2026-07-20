@@ -24,7 +24,12 @@ class TeamSessionRecord {
 class TeamSessionRepository {
   final Database? database;
   final Future<void> Function(int sessionId)? onSessionDeleted;
-  const TeamSessionRepository({this.database, this.onSessionDeleted});
+  final Future<void> Function(int sessionId)? onSessionCompleted;
+  const TeamSessionRepository({
+    this.database,
+    this.onSessionDeleted,
+    this.onSessionCompleted,
+  });
 
   Future<Database> get _database async => database ?? DatabaseService.database;
 
@@ -294,6 +299,7 @@ class TeamSessionRepository {
       databaseId: stored.id,
       unitName: stored.unitNameSnapshot,
       apparatusName: stored.apparatusNameSnapshot,
+      apparatusWorkingPressure: stored.apparatusWorkingPressure,
       participants: [
         for (final member in members)
           Firefighter(
@@ -508,6 +514,7 @@ class TeamSessionRepository {
         );
       }
     });
+    await onSessionCompleted?.call(sessionId);
   }
 
   Future<void> startEmergency(

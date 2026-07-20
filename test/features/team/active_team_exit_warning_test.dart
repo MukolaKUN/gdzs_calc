@@ -231,6 +231,8 @@ class _FakeNotificationGateway implements NotificationGateway {
   @override
   Future<void> cancel(int id) async {}
   @override
+  Future<void> cancelByPayloadPrefix(String prefix) async {}
+  @override
   Future<void> cancelForSession(int sessionId) async {}
   @override
   Future<void> initialize() async {}
@@ -248,6 +250,7 @@ class _FakeNotificationGateway implements NotificationGateway {
     required bool sound,
     required bool vibration,
     required bool exact,
+    NotificationChannelKind channel = NotificationChannelKind.exitWarning,
   }) async {}
   @override
   Future<void> showNow({

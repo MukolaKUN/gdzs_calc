@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gdzs_calc/features/history/history_formatters.dart';
+import 'package:gdzs_calc/features/history/team_report_preview_page.dart';
 import 'package:gdzs_calc/features/team/models/active_team_session.dart';
 import 'package:gdzs_calc/features/team/repositories/team_session_repository.dart';
 import 'package:gdzs_calc/shared/models/firefighter.dart';
@@ -172,6 +173,23 @@ class _TeamHistoryDetailsPageState extends State<TeamHistoryDetailsPage> {
                   ),
               ],
       ),
+      if (session.stage == ActiveTeamStage.completed)
+        SizedBox(
+          height: 52,
+          child: FilledButton.icon(
+            key: const Key('create-pdf-report'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => TeamReportPreviewPage(
+                  sessionId: widget.sessionId,
+                  repository: _repository,
+                ),
+              ),
+            ),
+            icon: const Icon(Icons.picture_as_pdf_rounded),
+            label: const Text('Сформувати PDF-звіт'),
+          ),
+        ),
     ],
   );
 

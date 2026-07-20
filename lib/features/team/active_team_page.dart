@@ -7,9 +7,11 @@ import 'package:gdzs_calc/features/team/repositories/team_session_repository.dar
 import 'package:gdzs_calc/features/team/widgets/pressure_check_sheet.dart';
 import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
 import 'package:gdzs_calc/shared/models/exit_warning_settings.dart';
+import 'package:gdzs_calc/shared/models/firefighter.dart';
 import 'package:gdzs_calc/shared/repositories/exit_warning_settings_repository.dart';
 import 'package:gdzs_calc/shared/services/exit_warning_service.dart';
 import 'package:gdzs_calc/shared/services/haptic_gateway.dart';
+import 'package:gdzs_calc/shared/services/pressure_control_reminder_service.dart';
 import 'package:gdzs_calc/shared/widgets/app_button.dart';
 
 class ActiveTeamPage extends StatefulWidget {
@@ -19,6 +21,7 @@ class ActiveTeamPage extends StatefulWidget {
   final ExitWarningSettingsRepository? warningSettingsRepository;
   final NotificationGateway? notificationGateway;
   final HapticGateway? hapticGateway;
+  final PressureControlReminderService? pressureControlReminderService;
   final DateTime Function()? now;
 
   const ActiveTeamPage({
@@ -29,6 +32,7 @@ class ActiveTeamPage extends StatefulWidget {
     this.warningSettingsRepository,
     this.notificationGateway,
     this.hapticGateway,
+    this.pressureControlReminderService,
     this.now,
   });
 
@@ -48,12 +52,16 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
   late final ExitWarningSettingsRepository? _warningSettingsRepository;
   late final NotificationGateway? _notificationGateway;
   late final HapticGateway _hapticGateway;
+  late final PressureControlReminderService? _pressureReminderService;
   ExitWarningSettings _warningSettings = const ExitWarningSettings();
   final Set<ExitWarningLevel> _firedHapticLevels = {};
   final List<Timer> _hapticTimers = [];
   bool _notificationsEnabled = false;
   bool _exactWarningsAvailable = false;
   bool _permissionDialogPending = false;
+  bool _reminderInitialized = false;
+  int _lastReminderInterval = 0;
+  int? _visibleReminderInterval;
 
   ActiveTeamSession get session => _loadedSession!;
   DateTime get _currentTime => widget.now?.call() ?? DateTime.now();
@@ -73,11 +81,19 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
         widget.exitWarningService?.gateway ??
         (AppServices.isInitialized ? AppServices.notificationGateway : null);
     _hapticGateway = widget.hapticGateway ?? const SystemHapticGateway();
+    _pressureReminderService =
+        widget.pressureControlReminderService ??
+        (AppServices.isInitialized
+            ? AppServices.pressureControlReminderService
+            : _notificationGateway == null
+            ? null
+            : PressureControlReminderService(_notificationGateway));
     _now = _currentTime;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() => _now = _currentTime);
       _processHapticThreshold();
+      _processPressureReminderBoundary();
     });
     _loadSession();
   }
@@ -118,13 +134,26 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
         now: _currentTime,
       );
     }
+    await _pressureReminderService?.synchronize(
+      sessionId: widget.sessionId,
+      inclusionTime: session.inclusionTime,
+      stage: session.stage,
+      notificationsEnabled:
+          settings.systemNotifications && settings.pressureControlReminders,
+      communicationAvailable:
+          session.activeEmergency?.communicationAvailable ?? true,
+      sound: settings.sound,
+      vibration: settings.vibration,
+    );
     if (!mounted) return;
     setState(() {
       _warningSettings = settings;
       _notificationsEnabled = notificationsEnabled;
       _exactWarningsAvailable = exact;
     });
+    _initializePressureReminderTracking();
     _processHapticThreshold();
+    _processPressureReminderBoundary();
     await _offerNotificationPermissionIfNeeded();
   }
 
@@ -192,6 +221,44 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
     _performHaptic(level);
   }
 
+  void _processPressureReminderBoundary() {
+    if (!mounted || _loadedSession == null || !_reminderInitialized) return;
+    if (session.stage == ActiveTeamStage.completed ||
+        !_warningSettings.pressureControlReminders) {
+      if (_visibleReminderInterval != null) {
+        setState(() => _visibleReminderInterval = null);
+      }
+      return;
+    }
+    final completed =
+        PressureControlReminderService.completedTenMinuteIntervals(
+          inclusionTime: session.inclusionTime,
+          now: _now,
+        );
+    if (completed <= _lastReminderInterval) return;
+    _lastReminderInterval = completed;
+    setState(() => _visibleReminderInterval = completed);
+    unawaited(_hapticGateway.heavyImpact());
+  }
+
+  void _initializePressureReminderTracking() {
+    if (_reminderInitialized) return;
+    final completed =
+        PressureControlReminderService.completedTenMinuteIntervals(
+          inclusionTime: session.inclusionTime,
+          now: _now,
+        );
+    final elapsed = _now.difference(session.inclusionTime);
+    _lastReminderInterval =
+        elapsed.inSeconds > 0 &&
+            elapsed.inSeconds %
+                    PressureControlReminderService.interval.inSeconds ==
+                0
+        ? completed - 1
+        : completed;
+    _reminderInitialized = true;
+  }
+
   void _performHaptic(ExitWarningLevel level) {
     if (!mounted) return;
     if (level == ExitWarningLevel.fiveMinutes) {
@@ -242,6 +309,9 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
   String get _leaderName => session.participants
       .firstWhere((member) => member.id == session.leaderId)
       .fullName;
+
+  Iterable<Firefighter> get _regularMembers =>
+      session.participants.where((member) => member.id != session.leaderId);
 
   String get _workLoadLabel =>
       session.workLoad == WorkLoad.heavy ? 'Важкі' : 'Середні';
@@ -340,6 +410,33 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
     if (mounted) await _loadSession();
   }
 
+  Future<void> _checkPressureFromReminder() async {
+    if (session.hasActiveEmergency &&
+        session.activeEmergency?.communicationAvailable == true) {
+      await _emergencyPressureCheck();
+      return;
+    }
+    if (session.stage == ActiveTeamStage.advancing) {
+      final checkedAt = _currentTime;
+      final estimated = session.estimatedAdvancingPressuresAt(checkedAt);
+      final result = await _openPressureSheet(
+        estimates: estimated,
+        maximums: session.startPressuresByFirefighterId,
+      );
+      if (!mounted || result == null) return;
+      await _repository.addPressureCheck(
+        sessionId: widget.sessionId,
+        checkedAt: checkedAt,
+        estimated: estimated,
+        actual: result,
+        emergencyMode: false,
+      );
+      if (mounted) await _loadSession();
+      return;
+    }
+    await _checkPressure();
+  }
+
   Future<void> _startExit() async {
     final confirmed = await _confirm(
       title: 'Підтвердити початок виходу?',
@@ -363,6 +460,7 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       DateTime.now(),
       fromEmergency: false,
     );
+    await _pressureReminderService?.cancelForSession(widget.sessionId);
     if (mounted) await _loadSession();
   }
 
@@ -545,6 +643,7 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       DateTime.now(),
       fromEmergency: true,
     );
+    await _pressureReminderService?.cancelForSession(widget.sessionId);
     if (mounted) await _loadSession();
   }
 
@@ -559,6 +658,73 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
     padding: const EdgeInsets.only(bottom: 12),
     child: Text(text, style: Theme.of(context).textTheme.headlineSmall),
   );
+
+  Widget _pressureReminderStatus() {
+    final remaining = PressureControlReminderService.timeUntilNextReminder(
+      inclusionTime: session.inclusionTime,
+      now: _now,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        'Наступний контроль через: ${_duration(remaining)}',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+    );
+  }
+
+  Widget _pressureReminderBanner() {
+    final intervalNumber = _visibleReminderInterval;
+    if (intervalNumber == null ||
+        !_warningSettings.pressureControlReminders ||
+        session.stage == ActiveTeamStage.completed) {
+      return const SizedBox.shrink();
+    }
+    final communicationAvailable =
+        session.activeEmergency?.communicationAvailable ?? true;
+    return Card(
+      key: const Key('pressure-control-reminder-banner'),
+      color: Theme.of(context).colorScheme.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Час провести контроль тиску',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Закрити',
+                  onPressed: () =>
+                      setState(() => _visibleReminderInterval = null),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            Text(
+              'Контроль №$intervalNumber: минуло ${intervalNumber * 10} хвилин від включення в ЗІЗОД.',
+            ),
+            const SizedBox(height: 8),
+            if (communicationAvailable)
+              FilledButton(
+                onPressed: _checkPressureFromReminder,
+                child: const Text('Провести контроль'),
+              )
+            else
+              const Text(
+                'Зв’язок із ланкою відсутній',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _timerCard(String label, String value) => Card(
     child: Padding(
@@ -674,10 +840,9 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
           Text('Умови роботи: $_workLoadLabel'),
           Text('Командир: $_leaderName'),
           const Divider(),
-          ...session.participants.map(
-            (member) => Text(
-              '${member.fullName}${member.id == session.leaderId ? ' — командир' : ''}',
-            ),
+          ..._regularMembers.map(
+            (member) =>
+                Text(member.fullName, key: Key('team-member-${member.id}')),
           ),
         ],
       ),
@@ -692,6 +857,7 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       children: session.participants.map((member) {
         final id = member.id!;
         return ListTile(
+          key: Key('pressure-member-$id'),
           leading: const Icon(Icons.speed),
           title: Text(member.fullName),
           subtitle: showStart
@@ -917,7 +1083,8 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
           Text('Командир: $_leaderName'),
           Text('Апарат: ${session.apparatusName}'),
           Text(
-            'Склад: ${session.participants.map((member) => member.fullName).join(', ')}',
+            'Склад: ${_regularMembers.map((member) => member.fullName).join(', ')}',
+            key: const Key('emergency-team-members'),
           ),
           const SizedBox(height: 14),
           if (!emergency.communicationAvailable)
@@ -1103,7 +1270,16 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
           foregroundColor: emergency ? Colors.white : null,
         ),
         body: SafeArea(
-          child: ListView(padding: const EdgeInsets.all(16), children: [body]),
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (session.stage != ActiveTeamStage.completed) ...[
+                _pressureReminderStatus(),
+                _pressureReminderBanner(),
+              ],
+              body,
+            ],
+          ),
         ),
       ),
     );
@@ -1144,44 +1320,76 @@ class _EmergencyFormDialogState extends State<_EmergencyFormDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Зафіксувати надзвичайну ситуацію'),
+      contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
       content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            DropdownButtonFormField<EmergencyReason>(
-              initialValue: _reason,
-              decoration: const InputDecoration(labelText: 'Причина'),
-              items: [
-                for (final reason in EmergencyReason.values)
-                  DropdownMenuItem(value: reason, child: Text(reason.label)),
-              ],
-              onChanged: (reason) {
-                if (reason == null) return;
-                setState(() {
-                  _reason = reason;
-                  if (reason == EmergencyReason.communicationLost) {
-                    _communicationAvailable = false;
-                  }
-                });
-              },
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _noteController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Примітка (необов’язково)',
+        child: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: double.infinity,
+                child: DropdownButtonFormField<EmergencyReason>(
+                  initialValue: _reason,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Причина',
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 16,
+                    ),
+                  ),
+                  selectedItemBuilder: (context) => [
+                    for (final reason in EmergencyReason.values)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          reason.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  items: [
+                    for (final reason in EmergencyReason.values)
+                      DropdownMenuItem(
+                        value: reason,
+                        child: Text(
+                          reason.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (reason) {
+                    if (reason == null) return;
+                    setState(() {
+                      _reason = reason;
+                      if (reason == EmergencyReason.communicationLost) {
+                        _communicationAvailable = false;
+                      }
+                    });
+                  },
+                ),
               ),
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Зв’язок із ланкою наявний'),
-              value: _communicationAvailable,
-              onChanged: (value) {
-                setState(() => _communicationAvailable = value);
-              },
-            ),
-          ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: _noteController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Примітка (необов’язково)',
+                ),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Зв’язок із ланкою наявний'),
+                value: _communicationAvailable,
+                onChanged: (value) {
+                  setState(() => _communicationAvailable = value);
+                },
+              ),
+            ],
+          ),
         ),
       ),
       actions: [

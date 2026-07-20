@@ -6,6 +6,7 @@ class ExitWarningSettings {
   final bool twoMinutes;
   final bool oneMinute;
   final bool permissionPrompted;
+  final bool pressureControlReminders;
 
   const ExitWarningSettings({
     this.systemNotifications = true,
@@ -15,6 +16,7 @@ class ExitWarningSettings {
     this.twoMinutes = true,
     this.oneMinute = true,
     this.permissionPrompted = false,
+    this.pressureControlReminders = true,
   });
 
   ExitWarningSettings copyWith({
@@ -25,6 +27,7 @@ class ExitWarningSettings {
     bool? twoMinutes,
     bool? oneMinute,
     bool? permissionPrompted,
+    bool? pressureControlReminders,
   }) => ExitWarningSettings(
     systemNotifications: systemNotifications ?? this.systemNotifications,
     sound: sound ?? this.sound,
@@ -33,5 +36,7 @@ class ExitWarningSettings {
     twoMinutes: twoMinutes ?? this.twoMinutes,
     oneMinute: oneMinute ?? this.oneMinute,
     permissionPrompted: permissionPrompted ?? this.permissionPrompted,
+    pressureControlReminders:
+        pressureControlReminders ?? this.pressureControlReminders,
   );
 }

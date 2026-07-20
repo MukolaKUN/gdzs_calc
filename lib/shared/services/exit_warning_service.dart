@@ -23,6 +23,7 @@ abstract interface class NotificationGateway {
     required bool sound,
     required bool vibration,
     required bool exact,
+    NotificationChannelKind channel = NotificationChannelKind.exitWarning,
   });
   Future<void> showNow({
     required int id,
@@ -34,7 +35,10 @@ abstract interface class NotificationGateway {
   });
   Future<void> cancel(int id);
   Future<void> cancelForSession(int sessionId);
+  Future<void> cancelByPayloadPrefix(String prefix);
 }
+
+enum NotificationChannelKind { exitWarning, pressureControlReminder }
 
 class ExitWarningService {
   final NotificationGateway gateway;

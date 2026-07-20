@@ -7,6 +7,10 @@ import 'package:timezone/timezone.dart' as tz;
 class LocalNotificationGateway implements NotificationGateway {
   static const channelId = 'gdzs_exit_warnings';
   static const channelName = 'Попередження про вихід із НДС';
+  static const pressureChannelId = 'gdzs_pressure_control_reminders';
+  static const pressureChannelName = 'Нагадування про контроль тиску';
+  static const pressureChannelDescription =
+      'Нагадування постовому про періодичний контроль тиску ланки ГДЗС';
 
   final FlutterLocalNotificationsPlugin _plugin;
   final ValueChanged<String>? onPayload;
@@ -40,6 +44,17 @@ class LocalNotificationGateway implements NotificationGateway {
           channelName,
           description: 'Нагадування про наближення розрахункового часу виходу',
           importance: Importance.max,
+          playSound: true,
+          enableVibration: true,
+          showBadge: true,
+        ),
+      );
+      await _android?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          pressureChannelId,
+          pressureChannelName,
+          description: pressureChannelDescription,
+          importance: Importance.high,
           playSound: true,
           enableVibration: true,
           showBadge: true,
@@ -104,12 +119,19 @@ class LocalNotificationGateway implements NotificationGateway {
   NotificationDetails _details({
     required bool sound,
     required bool vibration,
+    NotificationChannelKind channel = NotificationChannelKind.exitWarning,
   }) => NotificationDetails(
     android: AndroidNotificationDetails(
-      channelId,
-      channelName,
+      channel == NotificationChannelKind.pressureControlReminder
+          ? pressureChannelId
+          : channelId,
+      channel == NotificationChannelKind.pressureControlReminder
+          ? pressureChannelName
+          : channelName,
       channelDescription:
-          'Нагадування про наближення розрахункового часу виходу',
+          channel == NotificationChannelKind.pressureControlReminder
+          ? pressureChannelDescription
+          : 'Нагадування про наближення розрахункового часу виходу',
       importance: Importance.max,
       priority: Priority.max,
       playSound: sound,
@@ -134,6 +156,7 @@ class LocalNotificationGateway implements NotificationGateway {
     required bool sound,
     required bool vibration,
     required bool exact,
+    NotificationChannelKind channel = NotificationChannelKind.exitWarning,
   }) async {
     final scheduledDate = tz.TZDateTime.from(at.toUtc(), tz.UTC);
     Future<void> perform(bool useExact) => _plugin.zonedSchedule(
@@ -141,7 +164,11 @@ class LocalNotificationGateway implements NotificationGateway {
       title: title,
       body: body,
       scheduledDate: scheduledDate,
-      notificationDetails: _details(sound: sound, vibration: vibration),
+      notificationDetails: _details(
+        sound: sound,
+        vibration: vibration,
+        channel: channel,
+      ),
       androidScheduleMode: useExact
           ? AndroidScheduleMode.exactAllowWhileIdle
           : AndroidScheduleMode.inexactAllowWhileIdle,
@@ -173,6 +200,16 @@ class LocalNotificationGateway implements NotificationGateway {
 
   @override
   Future<void> cancel(int id) => _plugin.cancel(id: id);
+
+  @override
+  Future<void> cancelByPayloadPrefix(String prefix) async {
+    final pending = await _plugin.pendingNotificationRequests();
+    for (final notification in pending) {
+      if (notification.payload?.startsWith(prefix) == true) {
+        await cancel(notification.id);
+      }
+    }
+  }
 
   @override
   Future<void> cancelForSession(int sessionId) async {

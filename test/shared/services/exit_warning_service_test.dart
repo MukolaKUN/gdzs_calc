@@ -164,6 +164,9 @@ class _FakeGateway implements NotificationGateway {
   Future<void> cancel(int id) async => pending.remove(id);
 
   @override
+  Future<void> cancelByPayloadPrefix(String prefix) async {}
+
+  @override
   Future<void> cancelForSession(int sessionId) async {
     cancelForSessionCalls++;
     for (final level in ExitWarningLevel.values) {
@@ -190,6 +193,7 @@ class _FakeGateway implements NotificationGateway {
     required bool sound,
     required bool vibration,
     required bool exact,
+    NotificationChannelKind channel = NotificationChannelKind.exitWarning,
   }) async {
     pending[id] = _Scheduled(at, exact);
   }

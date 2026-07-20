@@ -119,6 +119,7 @@ class ActiveTeamSession {
   final int? databaseId;
   final String unitName;
   final String apparatusName;
+  final int apparatusWorkingPressure;
   final List<Firefighter> participants;
   final int leaderId;
   final Map<int, int> startPressuresByFirefighterId;
@@ -151,6 +152,7 @@ class ActiveTeamSession {
     this.databaseId,
     required this.unitName,
     required this.apparatusName,
+    this.apparatusWorkingPressure = 0,
     required List<Firefighter> participants,
     required this.leaderId,
     required Map<int, int> startPressuresByFirefighterId,
@@ -187,6 +189,7 @@ class ActiveTeamSession {
     this.databaseId,
     required this.unitName,
     required this.apparatusName,
+    this.apparatusWorkingPressure = 0,
     required List<Firefighter> participants,
     required this.leaderId,
     required Map<int, int> startPressuresByFirefighterId,

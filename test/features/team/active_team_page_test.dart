@@ -5,9 +5,152 @@ import 'package:gdzs_calc/features/team/models/active_team_session.dart';
 import 'package:gdzs_calc/features/team/repositories/team_session_repository.dart';
 import 'package:gdzs_calc/features/team/widgets/pressure_check_sheet.dart';
 import 'package:gdzs_calc/shared/models/firefighter.dart';
+import 'package:gdzs_calc/shared/models/exit_warning_settings.dart';
+import 'package:gdzs_calc/shared/repositories/exit_warning_settings_repository.dart';
 import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
+import 'package:gdzs_calc/shared/services/haptic_gateway.dart';
 
 void main() {
+  testWidgets('emergency reason dropdown fits a narrow screen', (tester) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ActiveTeamPage(
+          sessionId: 1,
+          repository: _MemoryRepository(_session()),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final emergencyButton = find.text('Надзвичайна ситуація');
+    await tester.ensureVisible(emergencyButton);
+    await tester.pumpAndSettle();
+    await tester.tap(emergencyButton);
+    await tester.pumpAndSettle();
+    expect(find.text('Зафіксувати надзвичайну ситуацію'), findsOneWidget);
+
+    await tester.tap(find.byType(DropdownButtonFormField<EmergencyReason>));
+    await tester.pumpAndSettle();
+    final longestReason = EmergencyReason.firefighterInjury.label;
+    await tester.tap(find.text(longestReason).last);
+    await tester.pumpAndSettle();
+
+    expect(find.text(longestReason), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ten-minute boundaries show one dismissible reminder each', (
+    tester,
+  ) async {
+    _setLargeView(tester);
+    final inclusion = DateTime(2026, 7, 20, 15, 10);
+    var clock = inclusion.add(const Duration(minutes: 9, seconds: 59));
+    final haptic = _ReminderHaptic();
+    final session = _session(inclusionTime: inclusion);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ActiveTeamPage(
+          sessionId: 1,
+          repository: _MemoryRepository(session),
+          now: () => clock,
+          hapticGateway: haptic,
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('Наступний контроль через'), findsOneWidget);
+    expect(
+      find.byKey(const Key('pressure-control-reminder-banner')),
+      findsNothing,
+    );
+
+    clock = inclusion.add(const Duration(minutes: 10));
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      find.byKey(const Key('pressure-control-reminder-banner')),
+      findsOneWidget,
+    );
+    expect(find.text('Провести контроль'), findsOneWidget);
+    expect(haptic.heavyCount, 1);
+
+    await tester.tap(find.byTooltip('Закрити'));
+    await tester.pump();
+    expect(
+      find.byKey(const Key('pressure-control-reminder-banner')),
+      findsNothing,
+    );
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      find.byKey(const Key('pressure-control-reminder-banner')),
+      findsNothing,
+    );
+    expect(haptic.heavyCount, 1);
+
+    clock = inclusion.add(const Duration(minutes: 20));
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      find.byKey(const Key('pressure-control-reminder-banner')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Контроль №2'), findsOneWidget);
+    expect(haptic.heavyCount, 2);
+  });
+
+  testWidgets('disabled pressure reminders hide banner and haptic', (
+    tester,
+  ) async {
+    _setLargeView(tester);
+    final inclusion = DateTime(2026, 7, 20, 15, 10);
+    final haptic = _ReminderHaptic();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ActiveTeamPage(
+          sessionId: 1,
+          repository: _MemoryRepository(_session(inclusionTime: inclusion)),
+          now: () => inclusion.add(const Duration(minutes: 10)),
+          hapticGateway: haptic,
+          warningSettingsRepository: _ReminderSettingsRepository(
+            const ExitWarningSettings(pressureControlReminders: false),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('pressure-control-reminder-banner')),
+      findsNothing,
+    );
+    expect(haptic.heavyCount, 0);
+  });
+
+  testWidgets('team info excludes leader but pressure list keeps everyone', (
+    tester,
+  ) async {
+    _setLargeView(tester);
+    final session = _session();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ActiveTeamPage(
+          sessionId: 1,
+          repository: _MemoryRepository(session),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final leaderName = session.participants.first.fullName;
+    expect(find.text('Командир: $leaderName'), findsOneWidget);
+    expect(find.byKey(const Key('team-member-1')), findsNothing);
+    expect(find.byKey(const Key('team-member-2')), findsOneWidget);
+    expect(find.byKey(const Key('pressure-member-1')), findsOneWidget);
+    expect(find.byKey(const Key('pressure-member-2')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('advancing, working, exiting and completed have distinct UI', (
     tester,
   ) async {
@@ -51,6 +194,7 @@ void main() {
 
     expect(session.stage, ActiveTeamStage.exiting);
     expect(find.text('Ланка виходить із НДС'), findsOneWidget);
+    expect(find.textContaining('Наступний контроль через'), findsOneWidget);
     expect(find.text('До початку виходу з НДС'), findsNothing);
     await tester.ensureVisible(find.text('Ланка вийшла на свіже повітря'));
     await tester.pump();
@@ -62,6 +206,11 @@ void main() {
     expect(session.stage, ActiveTeamStage.completed);
     expect(find.text('Роботу ланки завершено'), findsOneWidget);
     expect(find.text('Дані ланки збережено'), findsOneWidget);
+    expect(find.textContaining('Наступний контроль через'), findsNothing);
+    expect(
+      find.byKey(const Key('pressure-control-reminder-banner')),
+      findsNothing,
+    );
     expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -109,6 +258,14 @@ void main() {
     );
     await tester.pump();
     await _activateLostCommunication(tester);
+
+    final composition = tester.widget<Text>(
+      find.byKey(const Key('emergency-team-members')),
+    );
+    expect(composition.data, contains(session.participants[1].fullName));
+    expect(composition.data, isNot(contains(session.participants[0].fullName)));
+    expect(find.byKey(const Key('pressure-member-1')), findsNothing);
+    expect(find.text(session.participants[0].fullName), findsOneWidget);
 
     expect(find.text('АВАРІЙНИЙ РЕЖИМ'), findsOneWidget);
     expect(
@@ -240,8 +397,9 @@ Future<void> _activateLostCommunication(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-ActiveTeamSession _session() {
-  final inclusion = DateTime.now().subtract(const Duration(minutes: 5));
+ActiveTeamSession _session({DateTime? inclusionTime}) {
+  final inclusion =
+      inclusionTime ?? DateTime.now().subtract(const Duration(minutes: 5));
   return ActiveTeamSession.advancing(
     unitName: 'ДПРЧ-1',
     apparatusName: 'Drager',
@@ -260,6 +418,23 @@ ActiveTeamSession _session() {
       ActiveTeamEvent(time: inclusion, title: 'Ланка увімкнулася в ЗІЗОД'),
     ],
   );
+}
+
+class _ReminderHaptic implements HapticGateway {
+  int heavyCount = 0;
+  @override
+  Future<void> heavyImpact() async => heavyCount++;
+  @override
+  Future<void> mediumImpact() async {}
+}
+
+class _ReminderSettingsRepository extends ExitWarningSettingsRepository {
+  final ExitWarningSettings value;
+  const _ReminderSettingsRepository(this.value);
+  @override
+  Future<ExitWarningSettings> load() async => value;
+  @override
+  Future<void> save(ExitWarningSettings settings) async {}
 }
 
 ActiveTeamSession _sessionAt(ActiveTeamStage stage) {
