@@ -3,18 +3,10 @@ class Unit {
   final String name;
   final String city;
 
-  const Unit({
-    this.id,
-    required this.name,
-    required this.city,
-  });
+  const Unit({this.id, required this.name, required this.city});
 
   Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'name': name,
-      'city': city,
-    };
+    return {'id': id, 'name': name, 'city': city};
   }
 
   factory Unit.fromMap(Map<String, dynamic> map) {
@@ -25,11 +17,7 @@ class Unit {
     );
   }
 
-  Unit copyWith({
-    int? id,
-    String? name,
-    String? city,
-  }) {
+  Unit copyWith({int? id, String? name, String? city}) {
     return Unit(
       id: id ?? this.id,
       name: name ?? this.name,

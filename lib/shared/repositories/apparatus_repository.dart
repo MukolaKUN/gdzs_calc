@@ -5,10 +5,7 @@ class ApparatusRepository {
   Future<List<Apparatus>> getAll() async {
     final db = await DatabaseService.database;
 
-    final result = await db.query(
-      'apparatus',
-      orderBy: 'name',
-    );
+    final result = await db.query('apparatus', orderBy: 'name');
 
     return result.map((e) => Apparatus.fromMap(e)).toList();
   }
@@ -16,10 +13,7 @@ class ApparatusRepository {
   Future<void> insert(Apparatus apparatus) async {
     final db = await DatabaseService.database;
 
-    await db.insert(
-      'apparatus',
-      apparatus.toMap(),
-    );
+    await db.insert('apparatus', apparatus.toMap());
   }
 
   Future<void> update(Apparatus apparatus) async {
@@ -36,10 +30,6 @@ class ApparatusRepository {
   Future<void> delete(int id) async {
     final db = await DatabaseService.database;
 
-    await db.delete(
-      'apparatus',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.delete('apparatus', where: 'id = ?', whereArgs: [id]);
   }
 }

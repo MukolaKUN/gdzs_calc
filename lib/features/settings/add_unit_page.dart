@@ -8,10 +8,7 @@ import 'package:gdzs_calc/shared/widgets/app_snackbar.dart';
 class AddUnitPage extends StatefulWidget {
   final Unit? unit;
 
-  const AddUnitPage({
-    super.key,
-    this.unit,
-  });
+  const AddUnitPage({super.key, this.unit});
 
   @override
   State<AddUnitPage> createState() => _AddUnitPageState();
@@ -45,10 +42,7 @@ class _AddUnitPageState extends State<AddUnitPage> {
   Future<void> _saveUnit() async {
     if (_nameController.text.trim().isEmpty ||
         _cityController.text.trim().isEmpty) {
-      AppSnackBar.error(
-  context,
-  'Заповніть усі поля',
-      );
+      AppSnackBar.error(context, 'Заповніть усі поля');
       return;
     }
 
@@ -67,10 +61,8 @@ class _AddUnitPageState extends State<AddUnitPage> {
     if (!mounted) return;
 
     AppSnackBar.success(
-  context,
-  _isEditing
-      ? 'Підрозділ оновлено'
-      : 'Підрозділ успішно збережено',
+      context,
+      _isEditing ? 'Підрозділ оновлено' : 'Підрозділ успішно збережено',
     );
 
     Navigator.pop(context);
@@ -80,11 +72,7 @@ class _AddUnitPageState extends State<AddUnitPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          _isEditing
-              ? 'Редагування підрозділу'
-              : 'Новий підрозділ',
-        ),
+        title: Text(_isEditing ? 'Редагування підрозділу' : 'Новий підрозділ'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(AppSizes.md),
@@ -107,9 +95,9 @@ class _AddUnitPageState extends State<AddUnitPage> {
             ),
             const Spacer(),
             AppButton(
-  text: _isEditing ? 'Зберегти зміни' : 'Зберегти',
-  onPressed: _saveUnit,
-),
+              text: _isEditing ? 'Зберегти зміни' : 'Зберегти',
+              onPressed: _saveUnit,
+            ),
           ],
         ),
       ),

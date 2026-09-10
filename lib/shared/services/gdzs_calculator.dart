@@ -1,7 +1,4 @@
-enum WorkLoad {
-  medium,
-  heavy,
-}
+enum WorkLoad { medium, heavy }
 
 extension WorkLoadValues on WorkLoad {
   int get airConsumption {
@@ -51,6 +48,85 @@ class CompressedAirCalculationResult {
 class GdzsCalculator {
   GdzsCalculator._();
 
+  static int calculateEstimatedPressureAfterElapsed({
+    required int basePressure,
+    required Duration elapsed,
+    required double cylinderVolume,
+    required int cylindersCount,
+    required WorkLoad workLoad,
+  }) {
+    final elapsedSeconds = elapsed.inSeconds < 0 ? 0 : elapsed.inSeconds;
+    final elapsedMinutes = elapsedSeconds / 60.0;
+    final pressureDrop =
+        (elapsedMinutes *
+                workLoad.airConsumption /
+                (cylindersCount * cylinderVolume))
+            .ceil();
+    final estimatedPressure = basePressure - pressureDrop;
+
+    return estimatedPressure.clamp(0, basePressure).toInt();
+  }
+
+  static int calculateRemainingWorkTimeMinutes({
+    required int currentPressure,
+    required int exitPressure,
+    required double cylinderVolume,
+    required int cylindersCount,
+    required WorkLoad workLoad,
+  }) {
+    if (currentPressure <= exitPressure) return 0;
+
+    final availablePressure = currentPressure - exitPressure;
+    final remainingMinutes =
+        cylindersCount *
+        cylinderVolume *
+        availablePressure /
+        workLoad.airConsumption;
+    final roundedMinutes = remainingMinutes.floor();
+
+    return roundedMinutes < 0 ? 0 : roundedMinutes;
+  }
+
+  /// Розраховує прогнозний тиск після прямування до місця роботи.
+  ///
+  /// Це орієнтовне значення для контролю постовим. Остаточний розрахунок
+  /// безпечних параметрів виконується за фактичним тиском, який доповів
+  /// командир ланки після прибуття до місця роботи.
+  static int calculateEstimatedArrivalPressure({
+    required int startPressure,
+    required int travelTimeMinutes,
+    required double cylinderVolume,
+    required int cylindersCount,
+    required WorkLoad workLoad,
+  }) {
+    if (startPressure < 0) {
+      throw ArgumentError('Початковий тиск не може бути від’ємним.');
+    }
+
+    if (travelTimeMinutes < 0) {
+      throw ArgumentError('Час прямування не може бути від’ємним.');
+    }
+
+    if (cylinderVolume <= 0) {
+      throw ArgumentError('Об’єм балона повинен бути більшим за нуль.');
+    }
+
+    if (cylindersCount <= 0) {
+      throw ArgumentError('Кількість балонів повинна бути більшою за нуль.');
+    }
+
+    final exactPressureDrop =
+        travelTimeMinutes *
+        workLoad.airConsumption /
+        (cylindersCount * cylinderVolume);
+
+    // Для прогнозу використовуємо безпечне округлення витрати в більшу сторону.
+    final pressureDrop = exactPressureDrop.ceil();
+    final estimatedPressure = startPressure - pressureDrop;
+
+    return estimatedPressure.clamp(0, startPressure).toInt();
+  }
+
   static CompressedAirCalculationResult calculateCompressedAir({
     required List<int> startPressures,
     required List<int> arrivalPressures,
@@ -74,26 +150,22 @@ class GdzsCalculator {
     final minimumStartPressure = _findMinimum(startPressures);
 
     // Pкр = (Pвкл мінімальний - Pрез) / 2
-    final criticalPressure =
-        (minimumStartPressure - reservePressure) / 2;
+    final criticalPressure = (minimumStartPressure - reservePressure) / 2;
 
     // Визначаємо газодимозахисника з найбільшою витратою
     // повітря під час прямування.
     int controllingMemberIndex = 0;
-    int maximumTravelPressure =
-        startPressures.first - arrivalPressures.first;
+    int maximumTravelPressure = startPressures.first - arrivalPressures.first;
 
     for (int index = 1; index < startPressures.length; index++) {
-      final travelPressure =
-          startPressures[index] - arrivalPressures[index];
+      final travelPressure = startPressures[index] - arrivalPressures[index];
 
       final hasGreaterTravelConsumption =
           travelPressure > maximumTravelPressure;
 
       final hasSameConsumptionButLowerArrivalPressure =
           travelPressure == maximumTravelPressure &&
-          arrivalPressures[index] <
-              arrivalPressures[controllingMemberIndex];
+          arrivalPressures[index] < arrivalPressures[controllingMemberIndex];
 
       if (hasGreaterTravelConsumption ||
           hasSameConsumptionButLowerArrivalPressure) {
@@ -102,19 +174,15 @@ class GdzsCalculator {
       }
     }
 
-    final controllingArrivalPressure =
-        arrivalPressures[controllingMemberIndex];
+    final controllingArrivalPressure = arrivalPressures[controllingMemberIndex];
 
     // Pвих = Pпр + Pрез
-    final exitPressure =
-        maximumTravelPressure + reservePressure;
+    final exitPressure = maximumTravelPressure + reservePressure;
 
     // Pроб = Pпоч.роб - Pвих
-    final rawWorkingPressure =
-        controllingArrivalPressure - exitPressure;
+    final rawWorkingPressure = controllingArrivalPressure - exitPressure;
 
-    final workingPressure =
-        rawWorkingPressure > 0 ? rawWorkingPressure : 0;
+    final workingPressure = rawWorkingPressure > 0 ? rawWorkingPressure : 0;
 
     // τроб = Nбал × Vбал × Pроб / Qвитр
     final exactWorkingTime =
@@ -126,14 +194,11 @@ class GdzsCalculator {
     // У прикладах методики дробова частина хвилини відкидається.
     final workingTimeMinutes = exactWorkingTime.floor();
 
-    final travelTimeMinutes =
-        arrivalTime.difference(inclusionTime).inMinutes;
+    final travelTimeMinutes = arrivalTime.difference(inclusionTime).inMinutes;
 
     // Tвих = Tвкл + τпр + τроб
     final exitTime = inclusionTime.add(
-      Duration(
-        minutes: travelTimeMinutes + workingTimeMinutes,
-      ),
+      Duration(minutes: travelTimeMinutes + workingTimeMinutes),
     );
 
     return CompressedAirCalculationResult(
@@ -147,8 +212,7 @@ class GdzsCalculator {
       travelTimeMinutes: travelTimeMinutes,
       workingTimeMinutes: workingTimeMinutes,
       exitTime: exitTime,
-      mustExitImmediately:
-          controllingArrivalPressure <= exitPressure,
+      mustExitImmediately: controllingArrivalPressure <= exitPressure,
     );
   }
 
@@ -179,35 +243,24 @@ class GdzsCalculator {
       );
     }
 
-    if (startPressures.length < 2 ||
-        startPressures.length > 5) {
-      throw ArgumentError(
-        'Ланка повинна складатися з 2–5 газодимозахисників.',
-      );
+    if (startPressures.length < 2 || startPressures.length > 5) {
+      throw ArgumentError('Ланка повинна складатися з 2–5 газодимозахисників.');
     }
 
     if (cylinderVolume <= 0) {
-      throw ArgumentError(
-        'Об’єм балона повинен бути більшим за нуль.',
-      );
+      throw ArgumentError('Об’єм балона повинен бути більшим за нуль.');
     }
 
     if (cylindersCount <= 0) {
-      throw ArgumentError(
-        'Кількість балонів повинна бути більшою за нуль.',
-      );
+      throw ArgumentError('Кількість балонів повинна бути більшою за нуль.');
     }
 
     if (reservePressure < 0) {
-      throw ArgumentError(
-        'Резервний тиск не може бути від’ємним.',
-      );
+      throw ArgumentError('Резервний тиск не може бути від’ємним.');
     }
 
     if (arrivalTime.isBefore(inclusionTime)) {
-      throw ArgumentError(
-        'Час прибуття не може бути раніше часу включення.',
-      );
+      throw ArgumentError('Час прибуття не може бути раніше часу включення.');
     }
 
     for (int index = 0; index < startPressures.length; index++) {
@@ -215,9 +268,7 @@ class GdzsCalculator {
       final arrivalPressure = arrivalPressures[index];
 
       if (startPressure <= 0 || arrivalPressure < 0) {
-        throw ArgumentError(
-          'Значення тиску повинні бути коректними.',
-        );
+        throw ArgumentError('Значення тиску повинні бути коректними.');
       }
 
       if (arrivalPressure > startPressure) {
