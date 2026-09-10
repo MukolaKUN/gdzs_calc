@@ -6,6 +6,7 @@ import 'package:gdzs_calc/features/team/controllers/active_team_alerts_controlle
 import 'package:gdzs_calc/features/team/controllers/active_team_emergency_controller.dart';
 import 'package:gdzs_calc/features/team/models/active_team_session.dart';
 import 'package:gdzs_calc/features/team/repositories/team_session_repository.dart';
+import 'package:gdzs_calc/features/team/providers/active_team_session_provider.dart';
 import 'package:gdzs_calc/features/team/widgets/pressure_check_sheet.dart';
 import 'package:gdzs_calc/shared/services/gdzs_calculator.dart';
 import 'package:gdzs_calc/shared/models/exit_warning_settings.dart';
@@ -15,6 +16,7 @@ import 'package:gdzs_calc/shared/services/exit_warning_service.dart';
 import 'package:gdzs_calc/shared/services/haptic_gateway.dart';
 import 'package:gdzs_calc/shared/services/pressure_control_reminder_service.dart';
 import 'package:gdzs_calc/shared/widgets/app_button.dart';
+import 'package:provider/provider.dart';
 
 class ActiveTeamPage extends StatefulWidget {
   final int sessionId;
@@ -114,7 +116,14 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
 
   Future<void> _loadSession() async {
     try {
-      final record = await _repository.getById(widget.sessionId);
+      final activeProvider = Provider.of<ActiveTeamSessionProvider?>(
+        context,
+        listen: false,
+      );
+      if (activeProvider != null) await activeProvider.refresh();
+      final record = activeProvider?.active?.id == widget.sessionId
+          ? activeProvider!.active
+          : await _repository.getById(widget.sessionId);
       if (!mounted) return;
       setState(() {
         _loadedSession = record?.session;

@@ -1,39 +1,47 @@
 import 'package:flutter/material.dart';
-import 'package:gdzs_calc/app/app_services.dart';
 import 'package:gdzs_calc/features/history/history_page.dart';
 import 'package:gdzs_calc/features/settings/settings_page.dart';
 import 'package:gdzs_calc/features/team/active_team_page.dart';
 import 'package:gdzs_calc/features/team/models/active_team_session.dart';
 import 'package:gdzs_calc/features/team/new_team_page.dart';
 import 'package:gdzs_calc/features/team/repositories/team_session_repository.dart';
+import 'package:gdzs_calc/features/team/providers/active_team_session_provider.dart';
+import 'package:provider/provider.dart';
 
-class HomePage extends StatefulWidget {
+class HomePage extends StatelessWidget {
   final TeamSessionRepository? repository;
   const HomePage({super.key, this.repository});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  Widget build(BuildContext context) {
+    final repository = this.repository;
+    if (repository == null) return const _HomePageContent();
+    return ChangeNotifierProvider(
+      create: (_) => ActiveTeamSessionProvider(repository)..load(),
+      child: const _HomePageContent(),
+    );
+  }
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageContent extends StatefulWidget {
+  const _HomePageContent();
+
+  @override
+  State<_HomePageContent> createState() => _HomePageContentState();
+}
+
+class _HomePageContentState extends State<_HomePageContent> {
   late final TeamSessionRepository _repository;
-  TeamSessionRecord? _active;
 
   @override
   void initState() {
     super.initState();
-    _repository =
-        widget.repository ??
-        (AppServices.isInitialized
-            ? AppServices.teamRepository
-            : const TeamSessionRepository());
-    _reload();
+    _repository = context.read<ActiveTeamSessionProvider>().repository;
   }
 
   Future<void> _reload() async {
     try {
-      final active = await _repository.getActiveSession();
-      if (mounted) setState(() => _active = active);
+      await context.read<ActiveTeamSessionProvider>().refresh();
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -44,7 +52,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openActive() async {
-    final active = _active;
+    final active = context.read<ActiveTeamSessionProvider>().active;
     if (active == null) return;
     await Navigator.push(
       context,
@@ -59,7 +67,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _createTeam() async {
     await _reload();
     if (!mounted) return;
-    if (_active != null) {
+    if (context.read<ActiveTeamSessionProvider>().active != null) {
       final open = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -97,7 +105,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final active = _active;
+    final active = context.watch<ActiveTeamSessionProvider>().active;
     final session = active?.session;
     final confirmed = session == null
         ? const <int>[]
