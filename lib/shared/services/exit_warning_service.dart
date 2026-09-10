@@ -151,4 +151,13 @@ class ExitWarningService {
 
   Future<void> cancelForSession(int sessionId) =>
       gateway.cancelForSession(sessionId);
+
+  Future<void> cancelAll() async {
+    final pending = await gateway.pendingNotifications();
+    for (final item in pending) {
+      if (!(item.payload ?? '').startsWith('pressureControlReminder:')) {
+        await gateway.cancel(item.id);
+      }
+    }
+  }
 }

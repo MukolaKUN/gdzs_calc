@@ -190,10 +190,20 @@ class _HomePageState extends State<HomePage> {
                 leading: const Icon(Icons.settings),
                 title: const Text('Налаштування'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const SettingsPage()),
-                ),
+                onTap: () async {
+                  final restored = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SettingsPage()),
+                  );
+                  if (!context.mounted) return;
+                  await _reload();
+                  if (!context.mounted) return;
+                  if (restored == true) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Дані успішно відновлено')),
+                    );
+                  }
+                },
               ),
             ),
           ],

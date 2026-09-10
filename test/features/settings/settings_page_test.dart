@@ -6,6 +6,31 @@ import 'package:gdzs_calc/shared/repositories/exit_warning_settings_repository.d
 import 'package:gdzs_calc/shared/services/exit_warning_service.dart';
 
 void main() {
+  testWidgets('backup section and actions fit a narrow screen', (tester) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsPage(
+          warningSettingsRepository: _MemorySettingsRepository(),
+          notificationGateway: _SettingsGateway(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Резервне копіювання'),
+      300,
+      scrollable: find.byType(Scrollable),
+    );
+    expect(find.text('Резервне копіювання'), findsOneWidget);
+    expect(find.text('Створити резервну копію'), findsOneWidget);
+    expect(find.text('Відновити з файла'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('warning switches persist after page restart', (tester) async {
     final repository = _MemorySettingsRepository();
     final gateway = _SettingsGateway();

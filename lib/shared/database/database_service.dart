@@ -2,6 +2,7 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
 class DatabaseService {
+  static const schemaVersion = 5;
   static Database? _database;
 
   static Future<Database> get database async {
@@ -18,7 +19,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 5,
+      version: schemaVersion,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },

@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:gdzs_calc/features/team/active_team_page.dart';
+import 'package:gdzs_calc/features/settings/backup/repositories/backup_repository.dart';
+import 'package:gdzs_calc/features/settings/backup/services/backup_file_service.dart';
+import 'package:gdzs_calc/features/settings/backup/services/database_backup_service.dart';
+import 'package:gdzs_calc/shared/database/database_service.dart';
 import 'package:gdzs_calc/features/team/models/active_team_session.dart';
 import 'package:gdzs_calc/features/team/repositories/team_session_repository.dart';
 import 'package:gdzs_calc/shared/repositories/exit_warning_settings_repository.dart';
@@ -17,6 +21,7 @@ class AppServices {
   static late final ExitWarningService exitWarningService;
   static late final PressureControlReminderService
   pressureControlReminderService;
+  static late final BackupRepository backupRepository;
   static bool isInitialized = false;
 
   static Future<void> initialize() async {
@@ -30,6 +35,12 @@ class AppServices {
       onSessionDeleted: _cancelSessionNotifications,
       onSessionCompleted: _cancelSessionNotifications,
     );
+    backupRepository = BackupRepository(
+      databaseService: DatabaseBackupService(await DatabaseService.database),
+      fileService: const PlatformBackupFileService(),
+      cancelReminders: _cancelAllNotifications,
+      synchronizeReminders: synchronizeActiveSession,
+    );
     await notificationGateway.initialize();
     isInitialized = true;
     await synchronizeActiveSession();
@@ -39,6 +50,7 @@ class AppServices {
     if (!isInitialized) return;
     final record = await teamRepository.getActiveSession();
     if (record == null) {
+      await exitWarningService.cancelAll();
       await pressureControlReminderService.cancelAll();
       return;
     }
@@ -60,6 +72,11 @@ class AppServices {
       sound: settings.sound,
       vibration: settings.vibration,
     );
+  }
+
+  static Future<void> _cancelAllNotifications() async {
+    await exitWarningService.cancelAll();
+    await pressureControlReminderService.cancelAll();
   }
 
   static Future<void> _cancelSessionNotifications(int sessionId) async {
