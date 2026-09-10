@@ -1,17 +1,30 @@
-# gdzs_calc
+# ГДЗС Калькулятор
 
-A new Flutter project.
+Flutter-застосунок для розрахунків і супроводу роботи ланки ГДЗС. Він дозволяє
+вести склад ланки, контролювати тиск, розраховувати час виходу, переглядати
+історію та створювати резервні копії локальних даних.
 
-## Getting Started
+## Основні можливості
 
-This project is a starting point for a Flutter application.
+- керування особовим складом, підрозділами й апаратами;
+- створення та супровід активної ланки;
+- розрахунок запасу повітря, контрольного тиску та часу виходу;
+- нагадування про контроль тиску й попередження про вихід;
+- історія завершених ланок та PDF-звіти;
+- експорт і відновлення резервних копій.
 
-A few resources to get you started if this is your first Flutter project:
+## Запуск
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Потрібен Flutter SDK, сумісний із версією Dart із `pubspec.yaml`.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+flutter pub get
+flutter run
+```
+
+## Перевірки
+
+```bash
+flutter analyze
+flutter test
+```

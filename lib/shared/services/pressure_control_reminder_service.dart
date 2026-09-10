@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:gdzs_calc/features/team/models/active_team_session.dart';
 import 'package:gdzs_calc/shared/services/exit_warning_service.dart';
 
@@ -64,7 +63,6 @@ class PressureControlReminderService {
             now: current,
           ) +
           1;
-      final scheduledBoundaries = <int, DateTime>{};
       for (var offset = 0; offset < _scheduledIntervals; offset++) {
         final number = firstNumber + offset;
         final at = inclusionTime.add(interval * number);
@@ -82,26 +80,6 @@ class PressureControlReminderService {
           exact: exact,
           channel: NotificationChannelKind.pressureControlReminder,
         );
-        scheduledBoundaries[id] = at;
-      }
-      if (kDebugMode) {
-        final pending = (await gateway.pendingNotifications())
-            .where(
-              (item) => item.payload == 'pressureControlReminder:$sessionId',
-            )
-            .toList();
-        debugPrint(
-          'Pressure reminders: sessionId=$sessionId '
-          'notificationsEnabled=true exactAvailable=$exact '
-          'pendingCount=${pending.length}',
-        );
-        for (final item in pending.take(1)) {
-          debugPrint(
-            'Pressure reminder pending: sessionId=$sessionId id=${item.id} '
-            'boundary=${scheduledBoundaries[item.id]?.toIso8601String()} '
-            'payload=${item.payload}',
-          );
-        }
       }
     } catch (_) {
       // Відмова дозволу або платформна помилка не повинна зупиняти роботу.
