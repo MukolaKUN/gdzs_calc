@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:gdzs_calc/app/app_services.dart';
 import 'package:gdzs_calc/features/settings/settings_page.dart';
+import 'package:gdzs_calc/features/team/controllers/active_team_alerts_controller.dart';
+import 'package:gdzs_calc/features/team/controllers/active_team_emergency_controller.dart';
 import 'package:gdzs_calc/features/team/models/active_team_session.dart';
 import 'package:gdzs_calc/features/team/repositories/team_session_repository.dart';
 import 'package:gdzs_calc/features/team/widgets/pressure_check_sheet.dart';
@@ -54,12 +56,11 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
   late final HapticGateway _hapticGateway;
   late final PressureControlReminderService? _pressureReminderService;
   ExitWarningSettings _warningSettings = const ExitWarningSettings();
-  final Set<ExitWarningLevel> _firedHapticLevels = {};
-  final List<Timer> _hapticTimers = [];
+  late final ActiveTeamAlertsController _alertsController;
+  late final ActiveTeamEmergencyController _emergencyController;
   bool _notificationsEnabled = false;
   bool _exactWarningsAvailable = false;
   bool _permissionDialogPending = false;
-  bool _reminderInitialized = false;
   int? _visibleReminderInterval;
   int? _dismissedPressureReminderInterval;
 
@@ -81,6 +82,7 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
         widget.exitWarningService?.gateway ??
         (AppServices.isInitialized ? AppServices.notificationGateway : null);
     _hapticGateway = widget.hapticGateway ?? const SystemHapticGateway();
+    _alertsController = ActiveTeamAlertsController(_hapticGateway);
     _pressureReminderService =
         widget.pressureControlReminderService ??
         (AppServices.isInitialized
@@ -89,11 +91,23 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
             ? null
             : PressureControlReminderService(_notificationGateway));
     _now = _currentTime;
+    _emergencyController = ActiveTeamEmergencyController(
+      sessionId: widget.sessionId,
+      repository: _repository,
+      now: () => _currentTime,
+      session: () => session,
+      reload: _loadSession,
+      isMounted: () => mounted,
+      confirm: _confirm,
+      openPressureSheet: _openPressureSheet,
+      cancelPressureReminders: () async {
+        await _pressureReminderService?.cancelForSession(widget.sessionId);
+      },
+    );
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() => _now = _currentTime);
-      _processHapticThreshold();
-      _processPressureReminderBoundary();
+      _processAlerts();
     });
     _loadSession();
   }
@@ -107,8 +121,8 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
         _loadError = record == null ? 'Активну ланку не знайдено.' : null;
         _now = _currentTime;
       });
-      if (record != null && _reminderInitialized) {
-        _processPressureReminderBoundary();
+      if (record != null) {
+        _processAlerts();
       }
       if (record != null) await _synchronizeExitWarnings();
     } catch (_) {
@@ -154,9 +168,8 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       _notificationsEnabled = notificationsEnabled;
       _exactWarningsAvailable = exact;
     });
-    _initializePressureReminderTracking();
-    _processHapticThreshold();
-    _processPressureReminderBoundary();
+    _alertsController.initializePressureReminderTracking();
+    _processAlerts();
     await _offerNotificationPermissionIfNeeded();
   }
 
@@ -208,85 +221,24 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
     if (granted) await _synchronizeExitWarnings();
   }
 
-  void _processHapticThreshold() {
-    if (!mounted ||
-        _loadedSession == null ||
-        session.stage != ActiveTeamStage.working ||
-        !_warningSettings.vibration) {
-      return;
-    }
-    final level = ExitWarningService.levelFor(
-      session.remainingUntilPlannedExit(_now),
+  void _processAlerts() {
+    _alertsController.process(
+      session: _loadedSession,
+      now: _now,
+      settings: _warningSettings,
+      visibleReminderInterval: _visibleReminderInterval,
+      dismissedReminderInterval: _dismissedPressureReminderInterval,
+      isMounted: mounted,
+      onVisibleReminderChanged: (interval) {
+        if (mounted) setState(() => _visibleReminderInterval = interval);
+      },
     );
-    if (level == ExitWarningLevel.normal || !_firedHapticLevels.add(level)) {
-      return;
-    }
-    _performHaptic(level);
-  }
-
-  void _processPressureReminderBoundary() {
-    if (!mounted || _loadedSession == null || !_reminderInitialized) return;
-    final completed =
-        PressureControlReminderService.completedTenMinuteIntervals(
-          inclusionTime: session.inclusionTime,
-          now: _now,
-        );
-    final currentBoundary = session.inclusionTime.add(
-      PressureControlReminderService.interval * completed,
-    );
-    final latestCheck = session.latestPressureCheck;
-    final intervalHandled =
-        latestCheck != null && !latestCheck.checkedAt.isBefore(currentBoundary);
-    final shouldShow =
-        completed > 0 &&
-        session.stage != ActiveTeamStage.completed &&
-        _warningSettings.pressureControlReminders &&
-        !intervalHandled &&
-        _dismissedPressureReminderInterval != completed;
-    if (!shouldShow) {
-      if (_visibleReminderInterval != null) {
-        setState(() => _visibleReminderInterval = null);
-      }
-      return;
-    }
-    if (_visibleReminderInterval == completed) return;
-    setState(() => _visibleReminderInterval = completed);
-    unawaited(_hapticGateway.heavyImpact());
-  }
-
-  void _initializePressureReminderTracking() {
-    if (_reminderInitialized) return;
-    _reminderInitialized = true;
-  }
-
-  void _performHaptic(ExitWarningLevel level) {
-    if (!mounted) return;
-    if (level == ExitWarningLevel.fiveMinutes) {
-      unawaited(_hapticGateway.mediumImpact());
-      return;
-    }
-    final count = switch (level) {
-      ExitWarningLevel.oneMinute => 2,
-      ExitWarningLevel.exitNow => 3,
-      _ => 1,
-    };
-    unawaited(_hapticGateway.heavyImpact());
-    for (var index = 1; index < count; index++) {
-      late final Timer timer;
-      timer = Timer(Duration(milliseconds: 180 * index), () {
-        _hapticTimers.remove(timer);
-        if (mounted) unawaited(_hapticGateway.heavyImpact());
-      });
-      _hapticTimers.add(timer);
-    }
   }
 
   @override
   void dispose() {
     _timer.cancel();
-    for (final timer in _hapticTimers) {
-      timer.cancel();
-    }
+    _alertsController.dispose();
     super.dispose();
   }
 
@@ -471,11 +423,17 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
   }
 
   Future<void> _startEmergency() async {
+    if (_isEmergencyActionPending) return;
+    setState(() => _isEmergencyActionPending = true);
+    await _emergencyController.start(context);
+    if (mounted) setState(() => _isEmergencyActionPending = false);
+    return;
+    /*
     if (_isEmergencyActionPending || session.hasActiveEmergency) return;
     setState(() => _isEmergencyActionPending = true);
-    final input = await showDialog<_EmergencyInput>(
+    final input = await showDialog<EmergencyFormInput>(
       context: context,
-      builder: (_) => const _EmergencyFormDialog(),
+      builder: (_) => const EmergencyFormDialog(),
     );
     if (!mounted || input == null) {
       if (mounted) setState(() => _isEmergencyActionPending = false);
@@ -516,9 +474,13 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       _isEmergencyActionPending = false;
       _now = DateTime.now();
     });
+    */
   }
 
   Future<void> _emergencyPressureCheck() async {
+    await _emergencyController.emergencyPressureCheck();
+    return;
+    /*
     final emergency = session.activeEmergency;
     if (emergency == null || !emergency.communicationAvailable) return;
     final checkedAt = DateTime.now();
@@ -545,16 +507,24 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       emergencyMode: true,
     );
     if (mounted) await _loadSession();
+    */
   }
 
   Future<void> _restoreCommunication() async {
+    await _emergencyController.restoreCommunication();
+    return;
+    /*
     await _repository.restoreCommunication(widget.sessionId, DateTime.now());
     if (!mounted) return;
     await _loadSession();
     await _emergencyPressureCheck();
+    */
   }
 
   Future<void> _recordEmergencyAction() async {
+    await _emergencyController.recordAction(context);
+    return;
+    /*
     const actions = [
       'Резервну ланку направлено',
       'Встановлено зв’язок',
@@ -616,9 +586,13 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       title,
     );
     if (mounted) await _loadSession();
+    */
   }
 
   Future<void> _resolveEmergency() async {
+    await _emergencyController.resolve();
+    return;
+    /*
     final confirmed = await _confirm(
       title: 'Надзвичайну ситуацію усунено?',
       text: 'Аварійний режим буде завершено без зміни основного етапу.',
@@ -635,9 +609,13 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
       'Тривалість: ${duration.inMinutes} хв ${duration.inSeconds % 60} с.',
     );
     if (mounted) await _loadSession();
+    */
   }
 
   Future<void> _completeFromEmergency() async {
+    await _emergencyController.complete();
+    return;
+    /*
     final confirmed = await _confirm(
       title: 'Підтвердити вихід ланки?',
       text: 'Ланка вийшла з НДС на свіже повітря.',
@@ -651,6 +629,7 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
     );
     await _pressureReminderService?.cancelForSession(widget.sessionId);
     if (mounted) await _loadSession();
+    */
   }
 
   Widget _emergencyButton() => AppButton(
@@ -1235,6 +1214,15 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
     Navigator.of(context).pop();
   }
 
+  Widget _stageBody() => session.hasActiveEmergency
+      ? _emergencyLayout()
+      : switch (session.stage) {
+          ActiveTeamStage.advancing => _advancing(),
+          ActiveTeamStage.working => _working(),
+          ActiveTeamStage.exiting => _exiting(),
+          ActiveTeamStage.completed => _completed(),
+        };
+
   @override
   Widget build(BuildContext context) {
     if (_loadedSession == null) {
@@ -1256,14 +1244,7 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
         ),
       );
     }
-    final body = session.hasActiveEmergency
-        ? _emergencyLayout()
-        : switch (session.stage) {
-            ActiveTeamStage.advancing => _advancing(),
-            ActiveTeamStage.working => _working(),
-            ActiveTeamStage.exiting => _exiting(),
-            ActiveTeamStage.completed => _completed(),
-          };
+    final body = _stageBody();
     final emergency = session.hasActiveEmergency;
     return PopScope<void>(
       canPop: _allowPop || session.stage == ActiveTeamStage.completed,
@@ -1294,6 +1275,7 @@ class _ActiveTeamPageState extends State<ActiveTeamPage> {
   }
 }
 
+/* Legacy dialog retained below only temporarily during extraction.
 class _EmergencyInput {
   final EmergencyReason reason;
   final bool communicationAvailable;
@@ -1422,3 +1404,4 @@ class _EmergencyFormDialogState extends State<_EmergencyFormDialog> {
     );
   }
 }
+*/
