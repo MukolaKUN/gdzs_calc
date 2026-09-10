@@ -620,50 +620,103 @@ class _NewTeamPageState extends State<NewTeamPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Нова ланка')),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_error!),
-                  FilledButton(
-                    onPressed: _loadData,
-                    child: const Text('Повторити'),
-                  ),
-                ],
-              ),
-            )
-          : SafeArea(
-              child: Column(
-                children: [
-                  LinearProgressIndicator(value: (_step + 1) / 2),
-                  Expanded(
-                    child: ListView(
-                      padding: const EdgeInsets.all(16),
-                      children: [_step == 0 ? _composition() : _preparation()],
-                    ),
-                  ),
-                  if (_step == 0)
-                    SafeArea(
-                      top: false,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: AppButton(
-                          text: 'Далі',
-                          onPressed: _compositionValid
-                              ? _continueToPreparation
-                              : null,
-                          icon: Icons.arrow_forward,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
+    return _NewTeamPageBody(
+      loading: _loading,
+      error: _error,
+      step: _step,
+      content: _step == 0 ? _composition() : _preparation(),
+      canContinue: _compositionValid,
+      onRetry: _loadData,
+      onContinue: _continueToPreparation,
     );
   }
+}
+
+/// Page shell kept separate from the stateful form sections.
+class _NewTeamPageBody extends StatelessWidget {
+  const _NewTeamPageBody({
+    required this.loading,
+    required this.error,
+    required this.step,
+    required this.content,
+    required this.canContinue,
+    required this.onRetry,
+    required this.onContinue,
+  });
+
+  final bool loading;
+  final String? error;
+  final int step;
+  final Widget content;
+  final bool canContinue;
+  final VoidCallback onRetry;
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Нова ланка')),
+    body: loading
+        ? const Center(child: CircularProgressIndicator())
+        : error != null
+        ? _NewTeamLoadError(message: error!, onRetry: onRetry)
+        : SafeArea(
+            child: Column(
+              children: [
+                LinearProgressIndicator(value: (step + 1) / 2),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [content],
+                  ),
+                ),
+                if (step == 0)
+                  _CompositionConfirmation(
+                    enabled: canContinue,
+                    onPressed: onContinue,
+                  ),
+              ],
+            ),
+          ),
+  );
+}
+
+class _NewTeamLoadError extends StatelessWidget {
+  const _NewTeamLoadError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(message),
+        FilledButton(onPressed: onRetry, child: const Text('Повторити')),
+      ],
+    ),
+  );
+}
+
+class _CompositionConfirmation extends StatelessWidget {
+  const _CompositionConfirmation({
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: AppButton(
+        text: 'Далі',
+        onPressed: enabled ? onPressed : null,
+        icon: Icons.arrow_forward,
+      ),
+    ),
+  );
 }
